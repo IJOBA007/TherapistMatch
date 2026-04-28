@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="dashboard">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <h2>TherapistMatch</h2>
+
+    <a href="dashboard.html" class="active">Dashboard</a>
+    <a href="match.html">Find Therapist</a>
+    <a href="settings.html">Settings</a>
+    <a href="#" class="logout-link" onclick="logout()">Logout</a>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+    <section class="dashboard-home">
+      <div>
+        <p class="eyebrow">Dashboard</p>
+        <h1 id="welcome"></h1>
+        <p>Welcome to your dashboard</p>
+      </div>
+      <button type="button" id="supportToggle" class="customer-care-button">
+        <span class="support-icon" aria-hidden="true"></span>
+        <span>Customer Care</span>
+        <span id="supportIndicator" class="support-indicator"></span>
+      </button>
+    </section>
+
+    <section class="dashboard-panel">
+      <h2>Your Bookings</h2>
+      <div id="bookings" class="booking-list">
+        <div class="empty-state">
+          <strong>No bookings yet</strong>
+          <p>Your session requests will appear here.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<div id="supportPanel" class="support-panel" hidden>
+  <div class="support-panel-header">
+    <div>
+      <strong>Customer Care</strong>
+      <p>Send a message to admin support.</p>
+    </div>
+    <button type="button" id="supportClose">Close</button>
+  </div>
+  <div id="supportMessages" class="support-messages"></div>
+  <textarea id="supportMessage" rows="4" placeholder="How can we help?"></textarea>
+  <button type="button" id="supportSend">Send Message</button>
+</div>
+
+<script src="dashboard.js"></script>
+<script src="support.js"></script>
+
+
+</body>
+</html>

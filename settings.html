@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="dashboard">
+    <div class="sidebar">
+      <h2>TherapistMatch</h2>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="match.html">Find Therapist</a>
+      <a href="settings.html" class="active">Settings</a>
+    </div>
+
+    <main class="main-content">
+      <section class="settings-hero">
+        <p class="eyebrow">Settings</p>
+        <h1>Account Settings</h1>
+        <p>Manage your profile and payment details in one place.</p>
+      </section>
+
+      <section class="settings-grid">
+        <form id="profileForm" class="settings-panel">
+          <div class="settings-panel-header">
+            <div>
+              <h2>Profile</h2>
+              <p>Complete this so we can match you with the right therapists.</p>
+            </div>
+            <button type="button" id="editProfileBtn">Edit</button>
+          </div>
+
+          <div class="settings-form-grid">
+            <label>
+              Full name
+              <input id="name" placeholder="Full Name" disabled>
+            </label>
+            <label>
+              Date of birth
+              <input id="dob" type="date" disabled>
+            </label>
+            <label>
+              Age
+              <input id="ageDisplay" disabled>
+            </label>
+            <label>
+              Gender
+              <select id="gender" disabled>
+                <option value="">Select Gender</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label>
+              Location
+              <input id="location" placeholder="Location" disabled>
+            </label>
+            <label>
+              Primary language
+              <select id="primaryLanguage" required disabled>
+                <option value="">Select Primary Language</option>
+                <option>English</option>
+                <option>Yoruba</option>
+                <option>Igbo</option>
+                <option>Hausa</option>
+                <option>Pidgin</option>
+                <option>Spanish</option>
+                <option>French</option>
+              </select>
+            </label>
+            <label>
+              Secondary language
+              <select id="secondaryLanguage" disabled>
+                <option value="">Select Secondary Language</option>
+                <option>English</option>
+                <option>Yoruba</option>
+                <option>Igbo</option>
+                <option>Hausa</option>
+                <option>Pidgin</option>
+                <option>Spanish</option>
+                <option>French</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="settings-actions">
+            <p id="preview"></p>
+            <button type="submit">Save Profile</button>
+          </div>
+        </form>
+
+        <section class="settings-panel payment-panel">
+          <div class="settings-panel-header">
+            <div>
+              <h2>Payments</h2>
+              <p>Pay securely with Paystack. Admin can see payment status after checkout.</p>
+            </div>
+          </div>
+
+          <div class="payment-summary">
+            <span>Therapy session deposit</span>
+            <strong>NGN 5,000</strong>
+          </div>
+
+          <button type="button" id="paystackButton">Pay with Paystack</button>
+          <button type="button" id="recordPaymentButton" class="ghost-button">Record Test Payment</button>
+          <p id="paymentMessage" class="payment-message"></p>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://js.paystack.co/v1/inline.js"></script>
+  <script src="script.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

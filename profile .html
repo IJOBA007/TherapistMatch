@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Profile</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="profile-container">
+
+  <h1>TherapistMatch</h1>
+
+  <div class="profile-card">
+
+    <h2>Your Profile</h2>
+
+    <input id="name" placeholder="Full Name" disabled>
+    <input id="dob" type="date" placeholder="Date of Birth" disabled>
+
+    <p>Age: <span id="ageDisplay"></span></p>
+
+    <select id="gender" disabled>
+      <option value="">Select Gender</option>
+      <option>Male</option>
+      <option>Female</option>
+    </select>
+
+    <input id="location" placeholder="Location" disabled>
+
+    <select id="primaryLanguage" required disabled>
+      <option value="">Select Primary Language</option>
+      <option>English</option>
+      <option>Yoruba</option>
+      <option>Igbo</option>
+      <option>Hausa</option>
+      <option>Pidgin</option>
+    </select>
+
+    <select id="secondaryLanguage" disabled>
+      <option value="">Select Secondary Language (Optional)</option>
+      <option>English</option>
+      <option>Yoruba</option>
+      <option>Igbo</option>
+      <option>Hausa</option>
+      <option>Pidgin</option>
+    </select>
+
+    <!-- Therapist Section -->
+    <div id="therapistSection" style="display:none;">
+      <h3>Specialties</h3>
+
+      <label><input type="checkbox" value="Religion"> Religion</label><br>
+      <label><input type="checkbox" value="Marriage"> Marriage</label><br>
+      <label><input type="checkbox" value="Sex"> Sex & Relationships</label><br>
+      <label><input type="checkbox" value="Mental"> Mental Health</label><br>
+    </div>
+
+    <button onclick="enableEdit()">Edit Profile</button>
+    <button onclick="saveProfile()">Save Profile</button>
+
+    <p id="preview"></p>
+
+  </div>
+
+</div>
+
+<script src="profile.js"></script>
+
+</body>
+</html>

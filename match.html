@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Find a Therapist</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <aside class="sidebar">
+      <h2>TherapistMatch</h2>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="match.html" class="active">Find Therapist</a>
+      <a href="settings.html">Settings</a>
+    </aside>
+
+    <main class="main-content">
+      <section class="match-page">
+        <div class="match-hero">
+          <div>
+            <p class="eyebrow">Find a therapist</p>
+            <h1>Match by language first, then need</h1>
+            <p>Your preferred language is sent with the search, then 1 to 4 specialties narrow the match.</p>
+          </div>
+          <span id="specialtyCounter">0 of 4 selected</span>
+        </div>
+
+        <section class="match-panel">
+          <div class="match-controls">
+            <label>
+              Preferred language
+              <select id="language" required>
+                <option value="">Select language</option>
+                <option value="English">English</option>
+                <option value="Yoruba">Yoruba</option>
+                <option value="Igbo">Igbo</option>
+                <option value="Hausa">Hausa</option>
+                <option value="Pidgin">Pidgin</option>
+                <option value="Spanish">Spanish</option>
+                <option value="French">French</option>
+              </select>
+            </label>
+
+            <button type="button" onclick="findMatch()">Find Match</button>
+          </div>
+
+          <fieldset id="specialtyPicker" class="specialty-picker">
+            <legend>Specialties</legend>
+            <label><input type="checkbox" name="specialties" value="Anxiety & Panic"> Anxiety & Panic</label>
+            <label><input type="checkbox" name="specialties" value="Depression & Mood"> Depression & Mood</label>
+            <label><input type="checkbox" name="specialties" value="Stress & Burnout"> Stress & Burnout</label>
+            <label><input type="checkbox" name="specialties" value="Trauma & PTSD"> Trauma & PTSD</label>
+            <label><input type="checkbox" name="specialties" value="Grief & Loss"> Grief & Loss</label>
+            <label><input type="checkbox" name="specialties" value="Addiction Recovery"> Addiction Recovery</label>
+            <label><input type="checkbox" name="specialties" value="Couples Communication"> Couples Communication</label>
+            <label><input type="checkbox" name="specialties" value="Marriage Conflict"> Marriage Conflict</label>
+            <label><input type="checkbox" name="specialties" value="Sex & Intimacy"> Sex & Intimacy</label>
+            <label><input type="checkbox" name="specialties" value="Family Conflict"> Family Conflict</label>
+            <label><input type="checkbox" name="specialties" value="Child & Teen Support"> Child & Teen Support</label>
+            <label><input type="checkbox" name="specialties" value="Career & Work Stress"> Career & Work Stress</label>
+            <label><input type="checkbox" name="specialties" value="Self-Esteem & Confidence"> Self-Esteem & Confidence</label>
+            <label><input type="checkbox" name="specialties" value="Anger Management"> Anger Management</label>
+            <label><input type="checkbox" name="specialties" value="Faith & Spiritual Counseling"> Faith & Spiritual Counseling</label>
+            <label><input type="checkbox" name="specialties" value="Sleep & Insomnia"> Sleep & Insomnia</label>
+          </fieldset>
+
+          <p id="matchMessage" class="match-message"></p>
+          <div id="results" class="match-results"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+  <script src="match.js"></script>
+</body>
+</html>

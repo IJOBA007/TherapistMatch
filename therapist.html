@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Therapists Portal</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="therapist-page">
+  <div class="therapist-shell">
+    <aside class="therapist-sidebar">
+      <div>
+        <h1>TherapistMatch</h1>
+        <p>Therapists Portal</p>
+      </div>
+
+      <div class="therapist-status-chip">
+        <span>Status</span>
+        <strong id="statusLabel">Loading</strong>
+      </div>
+
+      <nav class="therapist-nav" aria-label="Therapist sections">
+        <button type="button" class="nav-button active" data-view="applicationView">Application</button>
+        <button type="button" class="nav-button" data-view="profileView">Profile</button>
+        <button type="button" class="nav-button" data-view="bookingsView">Bookings</button>
+      </nav>
+
+      <button type="button" class="secondary-button" onclick="logout()">Logout</button>
+    </aside>
+
+    <main class="therapist-main">
+      <section class="portal-hero">
+        <div>
+          <p class="eyebrow">Therapists portal</p>
+          <h2 id="therapistTitle">Complete your therapist application</h2>
+          <p id="therapistSubtitle">Add your credentials, practice details, bio, and supporting documents for admin review.</p>
+        </div>
+        <div class="portal-actions">
+          <button type="button" id="supportToggle" class="customer-care-button">
+            <span class="support-icon" aria-hidden="true"></span>
+            <span>Customer Care</span>
+            <span id="supportIndicator" class="support-indicator"></span>
+          </button>
+          <div class="hero-metric">
+            <span id="profileStrength">0%</span>
+            <small>Profile complete</small>
+          </div>
+        </div>
+      </section>
+
+      <section id="statusPanel" class="status-panel"></section>
+
+      <section id="applicationView" class="therapist-view">
+        <form id="credentialsForm" class="credential-form" enctype="multipart/form-data">
+          <div class="form-section">
+            <div class="section-heading">
+              <span>1</span>
+              <div>
+                <h3>Identity</h3>
+                <p>Your public therapist profile starts here.</p>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                Full name
+                <input type="text" id="name" name="name" required>
+              </label>
+              <label>
+                Location
+                <input type="text" id="location" name="location" placeholder="City, state or country" required>
+              </label>
+              <label>
+                Primary language
+                <select id="primaryLanguage" name="primary_language" required>
+                  <option value="">Select language</option>
+                  <option value="English">English</option>
+                  <option value="Yoruba">Yoruba</option>
+                  <option value="Igbo">Igbo</option>
+                  <option value="Hausa">Hausa</option>
+                  <option value="Pidgin">Pidgin</option>
+                  <option value="Spanish">Spanish</option>
+                  <option value="French">French</option>
+                </select>
+              </label>
+              <label>
+                Secondary language
+                <select id="secondaryLanguage" name="secondary_language">
+                  <option value="">Optional</option>
+                  <option value="English">English</option>
+                  <option value="Yoruba">Yoruba</option>
+                  <option value="Igbo">Igbo</option>
+                  <option value="Hausa">Hausa</option>
+                  <option value="Pidgin">Pidgin</option>
+                  <option value="Spanish">Spanish</option>
+                  <option value="French">French</option>
+                </select>
+              </label>
+              <label class="full-width">
+                Profile photo
+                <input type="file" id="profilePhoto" name="profile_photo" accept=".png,.jpg,.jpeg,.webp">
+              </label>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-heading">
+              <span>2</span>
+              <div>
+                <h3>Credentials</h3>
+                <p>License and education details for verification.</p>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                License number
+                <input type="text" id="licenseNumber" name="license_number" required>
+              </label>
+              <label>
+                License state or board
+                <input type="text" id="licenseState" name="license_state" required>
+              </label>
+              <label>
+                License expiry date
+                <input type="date" id="licenseExpiry" name="license_expiry" required>
+              </label>
+              <fieldset id="therapistSpecialtyPicker" class="full-width specialty-picker compact">
+                <legend>Specialties <span id="therapistSpecialtyCounter">0 of 4 selected</span></legend>
+                <label><input type="checkbox" name="specialization" value="Anxiety & Panic"> Anxiety & Panic</label>
+                <label><input type="checkbox" name="specialization" value="Depression & Mood"> Depression & Mood</label>
+                <label><input type="checkbox" name="specialization" value="Stress & Burnout"> Stress & Burnout</label>
+                <label><input type="checkbox" name="specialization" value="Trauma & PTSD"> Trauma & PTSD</label>
+                <label><input type="checkbox" name="specialization" value="Grief & Loss"> Grief & Loss</label>
+                <label><input type="checkbox" name="specialization" value="Addiction Recovery"> Addiction Recovery</label>
+                <label><input type="checkbox" name="specialization" value="Couples Communication"> Couples Communication</label>
+                <label><input type="checkbox" name="specialization" value="Marriage Conflict"> Marriage Conflict</label>
+                <label><input type="checkbox" name="specialization" value="Sex & Intimacy"> Sex & Intimacy</label>
+                <label><input type="checkbox" name="specialization" value="Family Conflict"> Family Conflict</label>
+                <label><input type="checkbox" name="specialization" value="Child & Teen Support"> Child & Teen Support</label>
+                <label><input type="checkbox" name="specialization" value="Career & Work Stress"> Career & Work Stress</label>
+                <label><input type="checkbox" name="specialization" value="Self-Esteem & Confidence"> Self-Esteem & Confidence</label>
+                <label><input type="checkbox" name="specialization" value="Anger Management"> Anger Management</label>
+                <label><input type="checkbox" name="specialization" value="Faith & Spiritual Counseling"> Faith & Spiritual Counseling</label>
+                <label><input type="checkbox" name="specialization" value="Sleep & Insomnia"> Sleep & Insomnia</label>
+              </fieldset>
+              <label>
+                Years of experience
+                <input type="number" id="experienceYears" name="experience_years" min="0" required>
+              </label>
+              <label>
+                Credential document
+                <input type="file" id="credentialDocument" name="credential_document" accept=".pdf,.png,.jpg,.jpeg,.webp">
+              </label>
+              <label class="full-width">
+                Education
+                <textarea id="education" name="education" rows="3" placeholder="Degrees, institutions, and dates" required></textarea>
+              </label>
+              <label class="full-width">
+                Certifications
+                <textarea id="certifications" name="certifications" rows="3" placeholder="Certifications, training, memberships"></textarea>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-heading">
+              <span>3</span>
+              <div>
+                <h3>Practice Profile</h3>
+                <p>How clients will understand your work.</p>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                Session rate (₦)
+                  <input type="number" id="hourlyRate" name="hourly_rate" min="0" step="500" required>
+              </label>
+              <div class="availability-builder full-width">
+                <input type="hidden" id="availability" name="availability">
+                <div class="availability-grid">
+                  <div class="availability-days">
+                    <span>Availability days</span>
+                    <details id="availabilityDaysDropdown" class="day-dropdown">
+                      <summary id="availabilityDaysSummary">Select days</summary>
+                      <div class="day-options">
+                        <label><input type="checkbox" name="availability_days" value="Monday"> Monday</label>
+                        <label><input type="checkbox" name="availability_days" value="Tuesday"> Tuesday</label>
+                        <label><input type="checkbox" name="availability_days" value="Wednesday"> Wednesday</label>
+                        <label><input type="checkbox" name="availability_days" value="Thursday"> Thursday</label>
+                        <label><input type="checkbox" name="availability_days" value="Friday"> Friday</label>
+                        <label><input type="checkbox" name="availability_days" value="Saturday"> Saturday</label>
+                        <label><input type="checkbox" name="availability_days" value="Sunday"> Sunday</label>
+                      </div>
+                    </details>
+                  </div>
+                  <label>
+                    Session duration
+                    <select id="sessionLength">
+                      <option value="30">30 minutes</option>
+                      <option value="45">45 minutes</option>
+                      <option value="60" selected>60 minutes</option>
+                      <option value="90">90 minutes</option>
+                    </select>
+                  </label>
+                </div>
+                <div id="availabilityRows" class="availability-rows"></div>
+                <p id="availabilityPreview" class="availability-preview">Select days, then set the exact time for each selected day.</p>
+              </div>
+              <fieldset class="full-width checkbox-panel">
+                <legend>Session formats</legend>
+                <label><input type="checkbox" name="session_formats" value="Video calls"> Video calls</label>
+                <label><input type="checkbox" name="session_formats" value="Phone calls"> Phone calls</label>
+                <label><input type="checkbox" name="session_formats" value="Secure chat"> Secure chat</label>
+                <label><input type="checkbox" name="session_formats" value="In person"> In person</label>
+              </fieldset>
+              <label class="full-width">
+                Bio
+                <textarea id="bio" name="bio" rows="6" placeholder="Share your therapy approach, ideal client fit, and what clients can expect." required></textarea>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <p id="formMessage"></p>
+            <button type="submit" id="submitCredentialsBtn">Submit for Verification</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="profileView" class="therapist-view" hidden>
+        <div id="profileSummary" class="profile-summary"></div>
+      </section>
+
+      <section id="bookingsView" class="therapist-view" hidden>
+        <div class="section-heading compact">
+          <span>4</span>
+          <div>
+            <h3>Bookings</h3>
+            <p>Client session requests appear here after verification.</p>
+          </div>
+        </div>
+        <div id="bookings" class="booking-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="supportPanel" class="support-panel" hidden>
+    <div class="support-panel-header">
+      <div>
+        <strong>Customer Care</strong>
+        <p>Send a message to admin support.</p>
+      </div>
+      <button type="button" id="supportClose">Close</button>
+    </div>
+    <div id="supportMessages" class="support-messages"></div>
+    <textarea id="supportMessage" rows="4" placeholder="How can we help?"></textarea>
+    <button type="button" id="supportSend">Send Message</button>
+  </div>
+
+  <script src="therapist.js"></script>
+  <script src="support.js"></script>
+</body>
+</html>

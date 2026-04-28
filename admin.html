@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - Therapist Verification</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="admin-page">
+  <main class="admin-shell">
+    <header class="admin-header">
+      <div>
+        <p class="eyebrow">Admin panel</p>
+        <h1>Admin Console</h1>
+        <p>Review therapist applications, transactions, and customer care messages.</p>
+      </div>
+      <button type="button" onclick="logoutAdmin()">Logout</button>
+    </header>
+
+    <section class="admin-section">
+      <div class="admin-section-title">
+        <h2>Pending Applications</h2>
+        <span id="pendingCount">0 pending</span>
+      </div>
+      <div id="therapists" class="admin-review-list">Loading...</div>
+    </section>
+
+    <section class="admin-section">
+      <div class="admin-section-title">
+        <h2>Transactions</h2>
+        <span id="paymentCount">0 user / 0 therapist</span>
+      </div>
+      <div id="payments" class="admin-review-list">Loading...</div>
+    </section>
+
+    <section class="admin-section">
+      <div class="admin-section-title">
+        <h2>Customer Care Inbox</h2>
+        <span id="supportCount">0 open</span>
+      </div>
+      <div id="supportInbox" class="admin-review-list">Loading...</div>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>

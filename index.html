@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TherapistMatch</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="login-page">
+
+  <div class="auth-container">
+
+    <img src="logo.png" class="logo">
+
+    <h2>Welcome to TherapistMatch</h2>
+
+    <!-- USER TYPE -->
+    <select id="role">
+      <option value="user">Sign in as User</option>
+      <option value="therapist">Sign in as Therapist</option>
+      <option value="admin">Sign in as Admin</option>
+    </select>
+
+    <input type="email" id="email" placeholder="Enter email">
+    <input type="password" id="password" placeholder="Enter password">
+
+    <button type="button" onclick="signup()">Create Account</button>
+    <button type="button" onclick="login()">Login</button>
+
+    <p id="message"></p>
+
+  </div>
+
+  <script src="script.js"></script>
+  <script src="https://js.paystack.co/v1/inline.js"></script>
+  <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+
+</body>
+</html>
