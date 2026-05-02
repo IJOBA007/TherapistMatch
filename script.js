@@ -1,5 +1,5 @@
 let socket = null;
-const ADMIN_CONSOLE_PATH = "/admin/console";
+const ADMIN_CONSOLE_PATH = "/tm-console-7f3a9c";
 
 function getEmailValue() {
   return document.getElementById("email").value.trim().toLowerCase();

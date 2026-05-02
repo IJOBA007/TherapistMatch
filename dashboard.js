@@ -3,7 +3,7 @@ function logout() {
   window.location.href = "index.html";
 }
 
-const ADMIN_CONSOLE_PATH = "/admin/console";
+const ADMIN_CONSOLE_PATH = "/tm-console-7f3a9c";
 
 function setWelcome(message) {
   const welcome = document.getElementById("welcome");

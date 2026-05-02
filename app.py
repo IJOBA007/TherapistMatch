@@ -342,9 +342,9 @@ MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCK_SECONDS = 5 * 60
 LOGIN_ATTEMPTS = {}
 ADMIN_ENTRY_PATH = '/admin'
-ADMIN_CONSOLE_PATH = '/admin/console'
+ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
 LEGACY_ADMIN_ENTRY_PATH = '/tm-gate-7f3a9c'
-LEGACY_ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
+LEGACY_ADMIN_CONSOLE_PATH = '/admin/console'
 PUBLIC_FILES = {
     'index.html',
     'dashboard.html',

@@ -1,4 +1,4 @@
-const ADMIN_CONSOLE_PATH = "/admin/console";
+const ADMIN_CONSOLE_PATH = "/tm-console-7f3a9c";
 
 function getAdminEmail() {
   return document.getElementById("adminEmail").value.trim().toLowerCase();

@@ -8,7 +8,7 @@ Replace `<your-service>` with the Render service name.
 - User dashboard: `https://<your-service>.onrender.com/user`
 - Therapist portal: `https://<your-service>.onrender.com/therapist`
 - Admin login: `https://<your-service>.onrender.com/admin`
-- Admin console: `https://<your-service>.onrender.com/admin/console`
+- Admin console: `https://<your-service>.onrender.com/tm-console-7f3a9c`
 - Health check: `https://<your-service>.onrender.com/healthz`
 
 ## Free Render Deploy
@@ -32,4 +32,4 @@ For permanent storage later, move the database to Postgres and uploaded files to
 
 ## First Admin
 
-After deploy, open `/admin`, enter the admin email and password, choose **Create First Admin**, and enter `ADMIN_SIGNUP_CODE`.
+After deploy, open `/admin`, enter the admin email and password, choose **Create First Admin**, and enter `ADMIN_SIGNUP_CODE`. After login, you will land on `/tm-console-7f3a9c`.
