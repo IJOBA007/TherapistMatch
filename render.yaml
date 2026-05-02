@@ -2,23 +2,14 @@ services:
   - type: web
     name: therapist-match
     runtime: python
+    plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: gunicorn -w 1 --worker-class eventlet -b 0.0.0.0:$PORT app:app
     healthCheckPath: /healthz
-    disk:
-      name: therapist-match-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: FLASK_ENV
         value: production
       - key: FLASK_DEBUG
         value: "0"
-      - key: DATA_DIR
-        value: /var/data
       - key: ADMIN_SIGNUP_CODE
-        sync: false
-      - key: PAYSTACK_SECRET_KEY
-        sync: false
-      - key: PAYSTACK_PUBLIC_KEY
         sync: false
