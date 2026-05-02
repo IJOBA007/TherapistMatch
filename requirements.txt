@@ -3,7 +3,6 @@ flask-cors==6.0.2
 Flask-SocketIO==5.6.1
 gunicorn==23.0.0
 requests==2.33.1
-simple-websocket==1.1.0
 Werkzeug==3.1.8
 gevent==24.2.1
-python-socketio==5.11.4
+gevent-websocket==0.10.1
