@@ -148,7 +148,7 @@ async function createAdminAccount() {
   };
 
   if (adminCode) {
-    payload.admin_code = adminCode;
+    payload.admin_code = adminCode.trim();
   }
 
   showAdminMessage("Creating admin access...");

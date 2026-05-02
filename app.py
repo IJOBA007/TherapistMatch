@@ -1571,18 +1571,20 @@ def signup():
     password = data.get('password')
     role = data.get('role')
 
-    signup_browser_message = validate_signup_browser_checks(data)
-    if signup_browser_message:
-        record_signup_attempt(email)
-        return jsonify({"message": signup_browser_message}), 400
+    if role != 'admin':
+        signup_browser_message = validate_signup_browser_checks(data)
+        if signup_browser_message:
+            record_signup_attempt(email)
+            return jsonify({"message": signup_browser_message}), 400
 
     if is_signup_limited(email):
         return jsonify({"message": "Too many signup attempts. Please wait and try again later."}), 429
 
-    turnstile_ok, turnstile_message = validate_turnstile_token(data.get('turnstile_token'))
-    if not turnstile_ok:
-        record_signup_attempt(email)
-        return jsonify({"message": turnstile_message}), 400
+    if role != 'admin':
+        turnstile_ok, turnstile_message = validate_turnstile_token(data.get('turnstile_token'))
+        if not turnstile_ok:
+            record_signup_attempt(email)
+            return jsonify({"message": turnstile_message}), 400
 
     if not email or not password or role not in ('user', 'therapist', 'admin'):
         record_signup_attempt(email)
@@ -1602,10 +1604,11 @@ def signup():
 
     if role == 'admin':
         admin_signup_code = os.environ.get('ADMIN_SIGNUP_CODE', '').strip()
+        submitted_admin_code = str(data.get('admin_code') or '').strip()
         cursor.execute("SELECT id FROM users WHERE role='admin' LIMIT 1")
         admin_exists = cursor.fetchone() is not None
 
-        if admin_signup_code and data.get('admin_code') != admin_signup_code:
+        if admin_signup_code and submitted_admin_code != admin_signup_code:
             conn.close()
             record_signup_attempt(email)
             return jsonify({"message": "Admin signup code is required"}), 403
