@@ -30,6 +30,14 @@
         <h2>Transactions</h2>
         <span id="paymentCount">0 user / 0 therapist</span>
       </div>
+      <div class="admin-toolbar">
+        <input type="search" id="paymentSearch" placeholder="Search email, reference, status">
+        <label>
+          <input type="checkbox" id="includeArchivedPayments">
+          Show archived
+        </label>
+        <button type="button" id="paymentSearchBtn">Search</button>
+      </div>
       <div id="payments" class="admin-review-list">Loading...</div>
     </section>
 

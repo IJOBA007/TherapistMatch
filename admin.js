@@ -1,24 +1,50 @@
 const API_BASE = "";
 
 document.addEventListener("DOMContentLoaded", () => {
-  if (localStorage.getItem("userRole") !== "admin") {
+  if (localStorage.getItem("userRole") !== "admin" || !localStorage.getItem("sessionToken")) {
     window.location.href = "index.html";
     return;
   }
 
   document.getElementById("therapists").addEventListener("click", handleReviewAction);
+  document.getElementById("payments").addEventListener("click", handlePaymentAction);
   document.getElementById("supportInbox").addEventListener("click", handleSupportAction);
+  document.getElementById("paymentSearchBtn").addEventListener("click", loadPayments);
+  document.getElementById("paymentSearch").addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      loadPayments();
+    }
+  });
+  document.getElementById("includeArchivedPayments").addEventListener("change", loadPayments);
   loadTherapists();
   loadPayments();
   loadSupportInbox();
 });
+
+function authHeaders(extraHeaders = {}) {
+  return {
+    ...extraHeaders,
+    Authorization: `Bearer ${localStorage.getItem("sessionToken") || ""}`
+  };
+}
+
+function handleUnauthorized(res) {
+  if (res.status !== 401) return false;
+  localStorage.clear();
+  window.location.href = "index.html";
+  return true;
+}
 
 async function loadTherapists() {
   const container = document.getElementById("therapists");
   const pendingCount = document.getElementById("pendingCount");
 
   try {
-    const res = await fetch(`${API_BASE}/get_unverified_therapists`);
+    const res = await fetch(`${API_BASE}/get_unverified_therapists`, {
+      headers: authHeaders()
+    });
+    if (handleUnauthorized(res)) return;
     const data = await res.json();
     const therapists = data.therapists || [];
 
@@ -118,13 +144,14 @@ async function requestChanges(email) {
 async function verifyTherapist(email, verify, rejectionReason = "") {
   const res = await fetch(`${API_BASE}/verify_therapist`, {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
+    headers: authHeaders({"Content-Type": "application/json"}),
     body: JSON.stringify({
       email,
       verify,
       rejection_reason: rejectionReason
     })
   });
+  if (handleUnauthorized(res)) return;
 
   const data = await res.json();
   alert(data.message);
@@ -134,9 +161,19 @@ async function verifyTherapist(email, verify, rejectionReason = "") {
 async function loadPayments() {
   const container = document.getElementById("payments");
   const paymentCount = document.getElementById("paymentCount");
+  const search = document.getElementById("paymentSearch").value.trim();
+  const includeArchived = document.getElementById("includeArchivedPayments").checked;
+  const params = new URLSearchParams();
+
+  if (search) params.set("search", search);
+  if (includeArchived) params.set("include_archived", "1");
+  const query = params.toString() ? `?${params.toString()}` : "";
 
   try {
-    const res = await fetch(`${API_BASE}/get_payments`);
+    const res = await fetch(`${API_BASE}/get_payments${query}`, {
+      headers: authHeaders()
+    });
+    if (handleUnauthorized(res)) return;
     const data = await res.json();
     const payments = data.payments || [];
     const userPayments = payments.filter(payment => payment.payer_role !== "therapist");
@@ -186,6 +223,10 @@ function renderPaymentGroup(title, description, payments) {
 }
 
 function renderPaymentCard(payment) {
+  const archivedLabel = payment.archived ? `<p class="payment-archive-label">Archived ${escapeHTML(formatDate(payment.archived_at))}</p>` : "";
+  const actionLabel = payment.archived ? "Restore" : "Delete";
+  const actionValue = payment.archived ? "restore" : "archive";
+
   return `
     <article class="admin-application compact-card">
       <div class="admin-application-header">
@@ -193,6 +234,7 @@ function renderPaymentCard(payment) {
           <p class="eyebrow">${escapeHTML(payment.status || "recorded")}</p>
           <h3>${escapeHTML(payment.user_email || "Unknown payer")}</h3>
           <p>${escapeHTML(payment.reference || "No reference")}</p>
+          ${archivedLabel}
         </div>
         <strong>${formatAmount(payment.amount, payment.currency)}</strong>
       </div>
@@ -202,8 +244,34 @@ function renderPaymentCard(payment) {
         <div><span>Status</span><strong>${escapeHTML(payment.status || "N/A")}</strong></div>
         <div><span>Created</span><strong>${escapeHTML(formatDate(payment.created_at))}</strong></div>
       </div>
+      <div class="admin-actions compact-actions">
+        <button type="button" class="${payment.archived ? "verify-btn" : "reject-btn"}" data-payment-action="${actionValue}" data-reference="${escapeAttribute(payment.reference)}">${actionLabel}</button>
+      </div>
     </article>
   `;
+}
+
+async function handlePaymentAction(event) {
+  const button = event.target.closest("[data-payment-action]");
+  if (!button) return;
+
+  const shouldArchive = button.dataset.paymentAction === "archive";
+  if (shouldArchive && !confirm("Delete this payment from the dashboard? It will still be available through search.")) {
+    return;
+  }
+
+  const res = await fetch(`${API_BASE}/archive_payment`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      reference: button.dataset.reference,
+      archived: shouldArchive
+    })
+  });
+  if (handleUnauthorized(res)) return;
+  const data = await res.json();
+  alert(data.message);
+  loadPayments();
 }
 
 async function loadSupportInbox() {
@@ -213,9 +281,10 @@ async function loadSupportInbox() {
   try {
     const res = await fetch(`${API_BASE}/get_customer_care`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({})
     });
+    if (handleUnauthorized(res)) return;
     const data = await res.json();
     const messages = data.messages || [];
     const userMessages = messages.filter(item => item.sender_role !== "therapist");
@@ -305,9 +374,10 @@ async function handleSupportAction(event) {
 
   const res = await fetch(`${API_BASE}/reply_customer_care`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ id, reply })
   });
+  if (handleUnauthorized(res)) return;
   const data = await res.json();
   alert(data.message);
   loadSupportInbox();

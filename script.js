@@ -1,27 +1,61 @@
 let socket = null;
 
+function getEmailValue() {
+  return document.getElementById("email").value.trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function showAuthMessage(message) {
+  const messageElement = document.getElementById("message");
+  if (messageElement) {
+    messageElement.innerText = message;
+  }
+}
+
 function logout() {
   localStorage.clear();
   window.location.href = "index.html";
 }
 
 async function signup() {
-  const email = document.getElementById("email").value;
+  const email = getEmailValue();
   const password = document.getElementById("password").value;
   const role = document.getElementById("role").value;
 
   if (!email || !password) {
-    document.getElementById("message").innerText = "Please enter email and password";
+    showAuthMessage("Please enter email and password");
+    return;
+  }
+
+  if (!isValidEmail(email)) {
+    showAuthMessage("Please enter a valid email address.");
+    return;
+  }
+
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    showAuthMessage("Password must be at least 8 characters and include a letter and a number.");
     return;
   }
 
   try {
+    const payload = { email, password, role };
+
+    if (role === "admin") {
+      const adminCode = prompt("Enter the admin signup code if one was provided.");
+      if (adminCode) {
+        payload.admin_code = adminCode;
+      }
+    }
+
     const res = await fetch("/signup", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ email, password, role })
+      body: JSON.stringify(payload)
     });
 
     const data = await res.json();
@@ -30,6 +64,7 @@ async function signup() {
     if (res.ok) {
       localStorage.setItem("userRole", role);
       localStorage.setItem("email", email);
+      localStorage.setItem("sessionToken", data.token || "");
 
       if (role === "therapist") {
         window.location.href = "therapist.html";
@@ -39,17 +74,27 @@ async function signup() {
         window.location.href = "dashboard.html";
       }
     } else {
-      document.getElementById("message").innerText = data.message;
+      showAuthMessage(data.message);
     }
   } catch (error) {
     console.error("Signup error:", error);
-    document.getElementById("message").innerText = "Connection error. Is the server running?";
+    showAuthMessage("Connection error. Is the server running?");
   }
 }
 
 async function login() {
-  const email = document.getElementById("email").value;
+  const email = getEmailValue();
   const password = document.getElementById("password").value;
+
+  if (!email || !password) {
+    showAuthMessage("Please enter email and password");
+    return;
+  }
+
+  if (!isValidEmail(email)) {
+    showAuthMessage("Please enter a valid email address.");
+    return;
+  }
 
   try {
     const res = await fetch("/login", {
@@ -66,6 +111,7 @@ async function login() {
     if (res.ok && data.message === "Login successful") {
       localStorage.setItem("userRole", data.role);
       localStorage.setItem("email", email);
+      localStorage.setItem("sessionToken", data.token || "");
 
       if (data.role === "therapist") {
         window.location.href = "therapist.html";
@@ -75,21 +121,27 @@ async function login() {
         window.location.href = "dashboard.html";
       }
     } else {
-      document.getElementById("message").innerText = data.message || "Login failed";
+      showAuthMessage(data.message || "Login failed");
     }
   } catch (error) {
     console.error("Login error:", error);
-    document.getElementById("message").innerText = "Connection error. Is the server running?";
+    showAuthMessage("Connection error. Is the server running?");
   }
 }
 
-async function bookSession(therapistEmail) {
+async function bookSession(therapistEmail, date, clientNeeds = [], options = {}) {
   const email = localStorage.getItem("email");
 
   if (!email) {
     alert("Please log in before booking a session.");
     window.location.href = "index.html";
     return;
+  }
+
+  if (!date) {
+    const message = "Please choose the appointment day and time.";
+    if (!options.silent) alert(message);
+    return { ok: false, data: { message } };
   }
 
   const res = await fetch("/book", {
@@ -100,12 +152,17 @@ async function bookSession(therapistEmail) {
     body: JSON.stringify({
       user_email: email,
       therapist_email: therapistEmail,
-      date: new Date().toISOString()
+      date,
+      client_needs: clientNeeds
     })
   });
 
   const data = await res.json();
-  alert(data.message);
+  if (!options.silent) {
+    alert(data.message);
+  }
+
+  return { ok: res.ok, status: res.status, data };
 }
 
 async function pay() {

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TherapistMatch</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -21,8 +22,8 @@
       <option value="admin">Sign in as Admin</option>
     </select>
 
-    <input type="email" id="email" placeholder="Enter email">
-    <input type="password" id="password" placeholder="Enter password">
+    <input type="email" id="email" placeholder="Enter email" autocomplete="email" required>
+    <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" minlength="8" required>
 
     <button type="button" onclick="signup()">Create Account</button>
     <button type="button" onclick="login()">Login</button>

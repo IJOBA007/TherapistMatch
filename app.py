@@ -1,5 +1,9 @@
 import sqlite3
-from datetime import datetime
+import json
+import re
+import secrets
+import time
+from datetime import datetime, timedelta
 from uuid import uuid4
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -92,6 +96,33 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_email TEXT,
+        role TEXT,
+        created_at TEXT,
+        expires_at TEXT
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS therapist_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email TEXT,
+        therapist_email TEXT,
+        rating INTEGER,
+        comment TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )
+    """)
+
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_therapist_reviews_user_therapist
+    ON therapist_reviews(user_email, therapist_email)
+    """)
+
     conn.commit()
 
     cursor.execute("PRAGMA table_info(users)")
@@ -135,6 +166,18 @@ def init_db():
     if "rejection_reason" not in existing_columns:
         cursor.execute("ALTER TABLE users ADD COLUMN rejection_reason TEXT")
 
+    cursor.execute("PRAGMA table_info(bookings)")
+    existing_booking_columns = [row[1] for row in cursor.fetchall()]
+    if "client_needs" not in existing_booking_columns:
+        cursor.execute("ALTER TABLE bookings ADD COLUMN client_needs TEXT")
+
+    cursor.execute("PRAGMA table_info(payments)")
+    existing_payment_columns = [row[1] for row in cursor.fetchall()]
+    if "archived" not in existing_payment_columns:
+        cursor.execute("ALTER TABLE payments ADD COLUMN archived INTEGER DEFAULT 0")
+    if "archived_at" not in existing_payment_columns:
+        cursor.execute("ALTER TABLE payments ADD COLUMN archived_at TEXT")
+
     cursor.execute("""
     UPDATE users
     SET verification_status='verified'
@@ -170,10 +213,105 @@ if CORS_ALLOWED_ORIGINS:
 
 ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'webp'}
 PASSWORD_HASH_PREFIXES = ('scrypt:', 'pbkdf2:', 'argon2:')
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+SESSION_HOURS = 12
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_LOCK_SECONDS = 5 * 60
+LOGIN_ATTEMPTS = {}
 
 
 def now_iso():
     return datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+
+
+def future_iso(hours):
+    return (datetime.utcnow() + timedelta(hours=hours)).isoformat(timespec='seconds') + 'Z'
+
+
+def normalize_email(email):
+    return str(email or '').strip().lower()
+
+
+def is_valid_email(email):
+    return bool(EMAIL_PATTERN.fullmatch(normalize_email(email)))
+
+
+def validate_password_strength(password):
+    if not password or len(password) < 8:
+        return "Password must be at least 8 characters."
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        return "Password must include at least one letter and one number."
+    return ""
+
+
+def is_login_limited(email):
+    key = normalize_email(email)
+    attempt = LOGIN_ATTEMPTS.get(key)
+    if not attempt:
+        return False
+
+    if time.time() - attempt["last_attempt"] > LOGIN_LOCK_SECONDS:
+        LOGIN_ATTEMPTS.pop(key, None)
+        return False
+
+    return attempt["count"] >= MAX_LOGIN_ATTEMPTS
+
+
+def record_failed_login(email):
+    key = normalize_email(email)
+    now = time.time()
+    attempt = LOGIN_ATTEMPTS.get(key)
+
+    if not attempt or now - attempt["last_attempt"] > LOGIN_LOCK_SECONDS:
+        LOGIN_ATTEMPTS[key] = {"count": 1, "last_attempt": now}
+        return
+
+    attempt["count"] += 1
+    attempt["last_attempt"] = now
+
+
+def clear_failed_login(email):
+    LOGIN_ATTEMPTS.pop(normalize_email(email), None)
+
+
+def create_session(cursor, email, role):
+    token = secrets.token_urlsafe(32)
+    cursor.execute("""
+    INSERT INTO sessions (token, user_email, role, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?)
+    """, (token, normalize_email(email), role, now_iso(), future_iso(SESSION_HOURS)))
+    return token
+
+
+def get_authenticated_user():
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+
+    token = auth_header.split(' ', 1)[1].strip()
+    if not token:
+        return None
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT user_email, role FROM sessions
+    WHERE token=? AND expires_at > ?
+    """, (token, now_iso()))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {"email": row[0], "role": row[1]}
+
+
+def require_admin():
+    user = get_authenticated_user()
+    if not user or user.get("role") != "admin":
+        return jsonify({"message": "Admin login required"}), 401
+    return None
 
 
 def is_password_hash(password_value):
@@ -207,19 +345,155 @@ def save_uploaded_file(field_name, email):
 
     return f"/uploads/{filename}"
 
+
+def parse_booking_datetime(value):
+    if not value:
+        return None
+
+    normalized = str(value).strip()
+    if normalized.endswith('Z'):
+        normalized = normalized[:-1]
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo:
+        parsed = parsed.replace(tzinfo=None)
+
+    return parsed.replace(second=0, microsecond=0)
+
+
+def minutes_from_time(value):
+    if not value or ':' not in value:
+        return None
+
+    try:
+        hour_value, minute_value = value.split(':', 1)
+        return int(hour_value) * 60 + int(minute_value[:2])
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_availability_value(value):
+    if not value:
+        return {"duration": 60, "slots": [], "legacy": ""}
+
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, dict) and isinstance(parsed.get("slots"), list):
+            return {
+                "duration": int(parsed.get("duration") or 60),
+                "slots": [
+                    {
+                        "day": slot.get("day"),
+                        "start": slot.get("start") or "",
+                        "end": slot.get("end") or ""
+                    }
+                    for slot in parsed.get("slots", [])
+                    if isinstance(slot, dict) and slot.get("day")
+                ],
+                "legacy": ""
+            }
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+
+    parts = str(value).split("|")
+    if len(parts) >= 2:
+        days = [day.strip() for day in parts[0].split(",") if day.strip()]
+        time_range = [item.strip() for item in parts[1].split("-", 1)]
+        duration_match = re.search(r"(\d+)", parts[2] if len(parts) > 2 else "")
+
+        if days and len(time_range) == 2 and time_range[0] and time_range[1]:
+            return {
+                "duration": int(duration_match.group(1)) if duration_match else 60,
+                "slots": [{"day": day, "start": time_range[0], "end": time_range[1]} for day in days],
+                "legacy": ""
+            }
+
+    return {"duration": 60, "slots": [], "legacy": str(value)}
+
+
+def requested_time_is_available(availability_value, requested_start):
+    availability = parse_availability_value(availability_value)
+
+    if availability["legacy"]:
+        return True, availability["duration"]
+
+    if not availability["slots"]:
+        return False, availability["duration"]
+
+    requested_day = requested_start.strftime("%A")
+    requested_minute = requested_start.hour * 60 + requested_start.minute
+    duration = availability["duration"] or 60
+
+    for slot in availability["slots"]:
+        if slot["day"] != requested_day:
+            continue
+
+        slot_start = minutes_from_time(slot["start"])
+        slot_end = minutes_from_time(slot["end"])
+        if slot_start is None or slot_end is None:
+            continue
+
+        if slot_start <= requested_minute and requested_minute + duration <= slot_end:
+            return True, duration
+
+    return False, duration
+
+
+def existing_booking_conflicts(existing_date, requested_start, duration):
+    existing_start = parse_booking_datetime(existing_date)
+    if not existing_start:
+        return False
+
+    existing_end = existing_start + timedelta(minutes=duration)
+    requested_end = requested_start + timedelta(minutes=duration)
+    return requested_start < existing_end and existing_start < requested_end
+
+
+def normalize_needs(value):
+    if isinstance(value, list):
+        needs = [str(item).strip() for item in value if str(item).strip()]
+    else:
+        needs = [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+    return ",".join(needs[:4])
+
 @app.route('/signup', methods=['POST'])
 def signup():
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
     password = data.get('password')
     role = data.get('role')
 
     if not email or not password or role not in ('user', 'therapist', 'admin'):
         return jsonify({"message": "Please enter a valid email, password, and role"}), 400
 
+    if not is_valid_email(email):
+        return jsonify({"message": "Please enter a valid email address"}), 400
+
+    password_message = validate_password_strength(password)
+    if password_message:
+        return jsonify({"message": password_message}), 400
+
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    if role == 'admin':
+        admin_signup_code = os.environ.get('ADMIN_SIGNUP_CODE', '').strip()
+        cursor.execute("SELECT id FROM users WHERE role='admin' LIMIT 1")
+        admin_exists = cursor.fetchone() is not None
+
+        if admin_signup_code and data.get('admin_code') != admin_signup_code:
+            conn.close()
+            return jsonify({"message": "Admin signup code is required"}), 403
+
+        if admin_exists and not admin_signup_code:
+            conn.close()
+            return jsonify({"message": "Admin signup is locked. Ask the current admin to create access."}), 403
 
     cursor.execute("SELECT id FROM users WHERE email=?", (email,))
     if cursor.fetchone():
@@ -234,21 +508,28 @@ def signup():
         "INSERT INTO users (email, password, role, verification_status) VALUES (?, ?, ?, ?)",
         (email, password_hash, role, verification_status)
     )
+    token = create_session(cursor, email, role)
 
     conn.commit()
     conn.close()
 
-    return jsonify({"message": "Account created"})
+    return jsonify({"message": "Account created", "role": role, "token": token})
 
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json() or {}
 
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
     password = data.get('password')
 
     if not email or not password:
         return jsonify({"message": "Please enter email and password"}), 400
+
+    if not is_valid_email(email):
+        return jsonify({"message": "Please enter a valid email address"}), 400
+
+    if is_login_limited(email):
+        return jsonify({"message": "Too many login attempts. Please wait a few minutes and try again."}), 429
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -268,13 +549,17 @@ def login():
                 "UPDATE users SET password=? WHERE id=?",
                 (generate_password_hash(password), user_id)
             )
-            conn.commit()
+
+        token = create_session(cursor, email, role)
+        conn.commit()
+        clear_failed_login(email)
 
         conn.close()
 
-        return jsonify({"message": "Login successful", "role": role, "verified": verified, "status": status})
+        return jsonify({"message": "Login successful", "role": role, "verified": verified, "status": status, "token": token})
 
     conn.close()
+    record_failed_login(email)
     return jsonify({"message": "Invalid credentials"}), 401
 
 
@@ -283,7 +568,7 @@ def login():
 def update_profile():
     data = request.get_json()
 
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
     name = data.get('name')
     dob = data.get('dob')
     gender = data.get('gender')
@@ -314,8 +599,8 @@ def update_profile():
 
 @app.route('/get_profile', methods=['POST'])
 def get_profile():
-    data = request.get_json()
-    email = data.get('email')
+    data = request.get_json() or {}
+    email = normalize_email(data.get('email'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -357,15 +642,21 @@ def match():
     cursor = conn.cursor()
 
     query = """
-    SELECT email, name, location, primary_language, secondary_language, specialization,
-           experience_years, bio, hourly_rate, profile_photo, session_formats, availability
-    FROM users
-    WHERE role='therapist' AND verified=1
+    SELECT u.email, u.name, u.location, u.primary_language, u.secondary_language, u.specialization,
+           u.experience_years, u.bio, u.hourly_rate, u.profile_photo, u.session_formats, u.availability,
+           COALESCE(r.rating_average, 0), COALESCE(r.rating_count, 0)
+    FROM users u
+    LEFT JOIN (
+        SELECT therapist_email, ROUND(AVG(rating), 1) AS rating_average, COUNT(*) AS rating_count
+        FROM therapist_reviews
+        GROUP BY therapist_email
+    ) r ON r.therapist_email = u.email
+    WHERE u.role='therapist' AND u.verified=1
     """
     params = []
 
     if primary_language:
-        query += " AND (primary_language=? OR secondary_language=?)"
+        query += " AND (u.primary_language=? OR u.secondary_language=?)"
         params.extend([primary_language, primary_language])
 
     cursor.execute(query, params)
@@ -397,7 +688,9 @@ def match():
             "hourly_rate": therapist[8],
             "profile_photo": therapist[9],
             "session_formats": therapist[10].split(',') if therapist[10] else [],
-            "availability": therapist[11]
+            "availability": therapist[11],
+            "rating_average": therapist[12],
+            "rating_count": therapist[13]
         })
 
     return jsonify({"therapists": therapists})
@@ -405,13 +698,24 @@ def match():
 
 @app.route('/book', methods=['POST'])
 def book():
-    data = request.get_json()
-    user_email = data.get('user_email')
-    therapist_email = data.get('therapist_email')
+    data = request.get_json() or {}
+    user_email = normalize_email(data.get('user_email'))
+    therapist_email = normalize_email(data.get('therapist_email'))
     date = data.get('date')
+    requested_start = parse_booking_datetime(date)
+    client_needs = normalize_needs(data.get('client_needs'))
 
     if not user_email or not therapist_email or not date:
         return jsonify({"message": "Missing booking details"}), 400
+
+    if not is_valid_email(user_email) or not is_valid_email(therapist_email):
+        return jsonify({"message": "Please use valid account emails for booking"}), 400
+
+    if not requested_start:
+        return jsonify({"message": "Please choose a valid appointment date and time"}), 400
+
+    if requested_start < datetime.now().replace(second=0, microsecond=0):
+        return jsonify({"message": "Please choose a future appointment time"}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -428,17 +732,38 @@ def book():
         return jsonify({"message": "Please complete your profile in Settings before booking. Your profile is shared with the therapist before the session begins."}), 400
 
     cursor.execute("""
-    SELECT id FROM users
+    SELECT id, availability FROM users
     WHERE email=? AND role='therapist' AND verified=1
     """, (therapist_email,))
-    if not cursor.fetchone():
+    therapist = cursor.fetchone()
+    if not therapist:
         conn.close()
         return jsonify({"message": "This therapist is not available for booking right now"}), 404
 
+    is_available, duration = requested_time_is_available(therapist[1], requested_start)
+    if not is_available:
+        conn.close()
+        return jsonify({"message": "This therapist is not available at that day or time. Please choose a time inside their listed availability."}), 400
+
     cursor.execute("""
-    INSERT INTO bookings (user_email, therapist_email, date, status)
-    VALUES (?, ?, ?, ?)
-    """, (user_email, therapist_email, date, 'Pending'))
+    SELECT date FROM bookings
+    WHERE therapist_email=?
+      AND COALESCE(status, 'Pending') NOT IN ('Cancelled', 'Rejected')
+    """, (therapist_email,))
+    existing_bookings = cursor.fetchall()
+
+    for existing_booking in existing_bookings:
+        if existing_booking_conflicts(existing_booking[0], requested_start, duration):
+            conn.close()
+            return jsonify({
+                "message": "This therapist is available then, but that time is already booked. Please choose another time.",
+                "status": "booked"
+            }), 409
+
+    cursor.execute("""
+    INSERT INTO bookings (user_email, therapist_email, date, status, client_needs)
+    VALUES (?, ?, ?, ?, ?)
+    """, (user_email, therapist_email, requested_start.isoformat(timespec='minutes'), 'Pending', client_needs))
 
     conn.commit()
     conn.close()
@@ -449,7 +774,7 @@ def book():
 @app.route('/therapist_bookings', methods=['POST'])
 def therapist_bookings():
     data = request.get_json()
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -457,7 +782,7 @@ def therapist_bookings():
     cursor.execute("""
     SELECT b.id, b.user_email, b.date, b.status,
            u.name, u.dob, u.gender, u.location,
-           u.primary_language, u.secondary_language, u.specialties
+           u.primary_language, u.secondary_language, u.specialties, b.client_needs
     FROM bookings b
     LEFT JOIN users u ON b.user_email = u.email
     WHERE b.therapist_email=?
@@ -481,12 +806,115 @@ def therapist_bookings():
                     "location": row[7],
                     "primary_language": row[8],
                     "secondary_language": row[9],
-                    "specialties": row[10].split(',') if row[10] else []
+                    "specialties": (row[11] or row[10] or '').split(',') if (row[11] or row[10]) else []
                 }
             }
             for row in rows
         ]
     })
+
+
+@app.route('/user_bookings', methods=['POST'])
+def user_bookings():
+    data = request.get_json() or {}
+    email = normalize_email(data.get('email'))
+
+    if not is_valid_email(email):
+        return jsonify({"message": "Please enter a valid email"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT b.id, b.therapist_email, b.date, b.status, b.client_needs,
+           u.name, u.specialization, u.profile_photo,
+           tr.rating, tr.comment
+    FROM bookings b
+    LEFT JOIN users u ON b.therapist_email = u.email
+    LEFT JOIN therapist_reviews tr
+      ON tr.therapist_email = b.therapist_email AND tr.user_email = b.user_email
+    WHERE b.user_email=?
+    ORDER BY b.id DESC
+    """, (email,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return jsonify({
+        "bookings": [
+            {
+                "id": row[0],
+                "therapist_email": row[1],
+                "date": row[2],
+                "status": row[3],
+                "client_needs": row[4].split(',') if row[4] else [],
+                "therapist": {
+                    "name": row[5],
+                    "specialization": row[6],
+                    "profile_photo": row[7]
+                },
+                "review": {
+                    "rating": row[8],
+                    "comment": row[9]
+                } if row[8] else None
+            }
+            for row in rows
+        ]
+    })
+
+
+@app.route('/rate_therapist', methods=['POST'])
+def rate_therapist():
+    data = request.get_json() or {}
+    user_email = normalize_email(data.get('user_email'))
+    therapist_email = normalize_email(data.get('therapist_email'))
+    comment = (data.get('comment') or '').strip()
+
+    try:
+        rating = int(data.get('rating'))
+    except (TypeError, ValueError):
+        rating = 0
+
+    if not is_valid_email(user_email) or not is_valid_email(therapist_email):
+        return jsonify({"message": "Please use valid account emails"}), 400
+
+    if rating < 1 or rating > 5:
+        return jsonify({"message": "Please choose a rating from 1 to 5"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT id FROM bookings
+    WHERE user_email=? AND therapist_email=?
+    LIMIT 1
+    """, (user_email, therapist_email))
+
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({"message": "You can only rate a therapist after booking them"}), 403
+
+    cursor.execute("""
+    SELECT id FROM therapist_reviews
+    WHERE user_email=? AND therapist_email=?
+    """, (user_email, therapist_email))
+    existing_review = cursor.fetchone()
+
+    if existing_review:
+        cursor.execute("""
+        UPDATE therapist_reviews
+        SET rating=?, comment=?, updated_at=?
+        WHERE id=?
+        """, (rating, comment, now_iso(), existing_review[0]))
+    else:
+        cursor.execute("""
+        INSERT INTO therapist_reviews (user_email, therapist_email, rating, comment, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_email, therapist_email, rating, comment, now_iso(), now_iso()))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Therapist rating saved"})
 
 
 
@@ -623,8 +1051,8 @@ def submit_credentials():
 # Get therapist profile (public)
 @app.route('/get_therapist_profile', methods=['POST'])
 def get_therapist_profile():
-    data = request.get_json()
-    email = data.get('email')
+    data = request.get_json() or {}
+    email = normalize_email(data.get('email'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -673,8 +1101,12 @@ def get_therapist_profile():
 # Admin verify therapist
 @app.route('/verify_therapist', methods=['POST'])
 def verify_therapist():
-    data = request.get_json()
-    email = data.get('email')
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
+    data = request.get_json() or {}
+    email = normalize_email(data.get('email'))
     verify = data.get('verify')  # 1 to verify, 0 to reject
     rejection_reason = data.get('rejection_reason') or 'Application needs more information.'
 
@@ -704,6 +1136,10 @@ def verify_therapist():
 # Get all unverified therapists (for admin)
 @app.route('/get_unverified_therapists', methods=['GET'])
 def get_unverified_therapists():
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -751,12 +1187,12 @@ def get_unverified_therapists():
 @app.route('/pay', methods=['POST'])
 def pay():
     data = request.get_json() or {}
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
     amount = data.get('amount', 500000)
     reference = data.get('reference') or f"manual_{uuid4().hex[:12]}"
 
-    if not email:
-        return jsonify({"message": "Missing payment email"}), 400
+    if not is_valid_email(email):
+        return jsonify({"message": "Please enter a valid payment email"}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -777,11 +1213,14 @@ import requests
 def verify_payment():
     data = request.get_json() or {}
     reference = data.get('reference')
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
     amount = data.get('amount', 500000)
 
     if not reference:
         return jsonify({"message": "Missing payment reference"}), 400
+
+    if email and not is_valid_email(email):
+        return jsonify({"message": "Please enter a valid payment email"}), 400
 
     paystack_secret_key = os.environ.get('PAYSTACK_SECRET_KEY', '').strip()
     if not paystack_secret_key:
@@ -807,7 +1246,7 @@ def verify_payment():
         if paystack_data.get('status') == "success":
             status = 'verified'
             message = 'Payment verified'
-            email = email or paystack_data.get('customer', {}).get('email')
+            email = email or normalize_email(paystack_data.get('customer', {}).get('email'))
             amount = paystack_data.get('amount', amount)
         else:
             status = 'failed'
@@ -817,6 +1256,7 @@ def verify_payment():
 
     conn = get_db_connection()
     cursor = conn.cursor()
+    email = email if is_valid_email(email) else None
     cursor.execute("SELECT id FROM payments WHERE reference=?", (reference,))
     existing_payment = cursor.fetchone()
 
@@ -844,16 +1284,47 @@ def verify_payment():
 
 @app.route('/get_payments', methods=['GET'])
 def get_payments():
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
+    search = (request.args.get('search') or '').strip()
+    include_archived = request.args.get('include_archived') == '1' or bool(search)
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    query = """
     SELECT p.user_email, p.amount, p.currency, p.provider, p.reference,
-           p.status, p.created_at, p.verified_at, COALESCE(u.role, 'user')
+           p.status, p.created_at, p.verified_at, COALESCE(u.role, 'user'),
+           COALESCE(p.archived, 0), p.archived_at
     FROM payments p
     LEFT JOIN users u ON p.user_email = u.email
-    ORDER BY p.id DESC
-    """)
+    """
+    filters = []
+    params = []
+
+    if not include_archived:
+        filters.append("COALESCE(p.archived, 0)=0")
+
+    if search:
+        filters.append("""
+        (
+            p.user_email LIKE ?
+            OR p.reference LIKE ?
+            OR p.provider LIKE ?
+            OR p.status LIKE ?
+            OR COALESCE(u.role, 'user') LIKE ?
+        )
+        """)
+        search_term = f"%{search}%"
+        params.extend([search_term, search_term, search_term, search_term, search_term])
+
+    if filters:
+        query += " WHERE " + " AND ".join(filters)
+
+    query += " ORDER BY p.id DESC"
+    cursor.execute(query, params)
     payments = cursor.fetchall()
     conn.close()
 
@@ -868,21 +1339,54 @@ def get_payments():
                 "status": payment[5],
                 "created_at": payment[6],
                 "verified_at": payment[7],
-                "payer_role": payment[8]
+                "payer_role": payment[8],
+                "archived": bool(payment[9]),
+                "archived_at": payment[10]
             }
             for payment in payments
         ]
     })
 
 
+@app.route('/archive_payment', methods=['POST'])
+def archive_payment():
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
+    data = request.get_json() or {}
+    reference = (data.get('reference') or '').strip()
+    archived = 1 if data.get('archived', True) else 0
+
+    if not reference:
+        return jsonify({"message": "Missing payment reference"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE payments
+    SET archived=?, archived_at=?
+    WHERE reference=?
+    """, (archived, now_iso() if archived else None, reference))
+
+    conn.commit()
+    updated = cursor.rowcount
+    conn.close()
+
+    if updated == 0:
+        return jsonify({"message": "Payment not found"}), 404
+
+    return jsonify({"message": "Payment removed from the dashboard. You can still find it with search."})
+
+
 @app.route('/customer_care', methods=['POST'])
 def customer_care():
     data = request.get_json() or {}
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
     role = data.get('role', 'user')
     message = data.get('message', '').strip()
 
-    if not email or not message:
+    if not is_valid_email(email) or not message:
         return jsonify({"message": "Please enter a customer care message"}), 400
 
     conn = get_db_connection()
@@ -902,7 +1406,12 @@ def customer_care():
 @app.route('/get_customer_care', methods=['POST'])
 def get_customer_care():
     data = request.get_json(silent=True) or {}
-    email = data.get('email')
+    email = normalize_email(data.get('email'))
+
+    if not email:
+        auth_error = require_admin()
+        if auth_error:
+            return auth_error
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -943,6 +1452,10 @@ def get_customer_care():
 
 @app.route('/reply_customer_care', methods=['POST'])
 def reply_customer_care():
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
     data = request.get_json() or {}
     message_id = data.get('id')
     reply = data.get('reply', '').strip()
@@ -979,6 +1492,10 @@ def handle_message(msg):
 
 @app.route('/unverified', methods=['GET'])
 def unverified():
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     cursor = conn.cursor()
 

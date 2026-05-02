@@ -501,7 +501,7 @@ function renderBookingCard(booking) {
   const languages = [profile.primary_language, profile.secondary_language].filter(Boolean).join(", ") || "Not set";
   const specialties = profile.specialties && profile.specialties.length
     ? profile.specialties.join(", ")
-    : "Not set";
+    : "Not provided yet";
 
   return `
     <article class="booking-row detailed-booking">
@@ -519,7 +519,7 @@ function renderBookingCard(booking) {
           <div><span>Gender</span><strong>${escapeHTML(profile.gender || "Not set")}</strong></div>
           <div><span>Location</span><strong>${escapeHTML(profile.location || "Not set")}</strong></div>
           <div><span>Languages</span><strong>${escapeHTML(languages)}</strong></div>
-          <div><span>Needs</span><strong>${escapeHTML(specialties)}</strong></div>
+          <div><span>Client needs</span><strong>${escapeHTML(specialties)}</strong></div>
         </div>
       </div>
     </article>

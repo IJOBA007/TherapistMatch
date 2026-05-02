@@ -1,15 +1,22 @@
 const MIN_SPECIALTIES = 1;
 const MAX_SPECIALTIES = 4;
 
+let currentTherapists = [];
+
 document.addEventListener("DOMContentLoaded", () => {
   bindSpecialtyPicker();
   loadProfileLanguage();
+
+  const sortPreference = document.getElementById("sortPreference");
+  if (sortPreference) {
+    sortPreference.addEventListener("change", () => renderTherapists(currentTherapists));
+  }
 });
 
 document.addEventListener("click", event => {
   const button = event.target.closest("[data-book-email]");
   if (button) {
-    bookSession(button.dataset.bookEmail);
+    handleBooking(button);
   }
 });
 
@@ -99,6 +106,7 @@ async function findMatch() {
   }
 
   const therapists = data.therapists || [];
+  currentTherapists = therapists;
 
   if (therapists.length === 0) {
     results.innerHTML = `
@@ -110,7 +118,14 @@ async function findMatch() {
     return;
   }
 
-  results.innerHTML = therapists.map(therapist => `
+  renderTherapists(therapists);
+}
+
+function renderTherapists(therapists) {
+  const results = document.getElementById("results");
+  const sortedTherapists = sortTherapists([...(therapists || [])]);
+
+  results.innerHTML = sortedTherapists.map(therapist => `
     <article class="match-card">
       ${therapist.profile_photo ? `<img class="profile-photo" src="${therapist.profile_photo}" alt="">` : ""}
       <div>
@@ -118,12 +133,63 @@ async function findMatch() {
         <p>${escapeHTML(therapist.specialization || "General Practice")}</p>
         <p>${escapeHTML(therapist.location || "Location not set")} - ${escapeHTML(formatLanguages(therapist))}</p>
         <p>${escapeHTML(formatRate(therapist.hourly_rate))}</p>
+        <p>${escapeHTML(formatRating(therapist))}</p>
         <p><strong>Available:</strong> ${escapeHTML(formatAvailability(therapist.availability))}</p>
         <p>${escapeHTML(therapist.bio || "No bio added yet.")}</p>
       </div>
-      <button type="button" data-book-email="${escapeAttribute(therapist.email)}">Book</button>
+      <div class="booking-controls">
+        <label>
+          Session time
+          <input type="datetime-local" data-book-time min="${escapeAttribute(getBookingMinimum())}">
+        </label>
+        <button type="button" data-book-email="${escapeAttribute(therapist.email)}">Book</button>
+        <p class="booking-feedback" data-book-message></p>
+      </div>
     </article>
   `).join("");
+}
+
+function sortTherapists(therapists) {
+  const preference = document.getElementById("sortPreference")?.value || "best";
+
+  return therapists.sort((first, second) => {
+    if (preference === "pay") {
+      return getRateValue(first.hourly_rate) - getRateValue(second.hourly_rate);
+    }
+
+    if (preference === "availability") {
+      return getAvailabilityScore(second.availability) - getAvailabilityScore(first.availability);
+    }
+
+    if (preference === "rating") {
+      return getRatingValue(second) - getRatingValue(first);
+    }
+
+    return getRatingValue(second) - getRatingValue(first)
+      || getAvailabilityScore(second.availability) - getAvailabilityScore(first.availability)
+      || getRateValue(first.hourly_rate) - getRateValue(second.hourly_rate);
+  });
+}
+
+async function handleBooking(button) {
+  const card = button.closest(".match-card");
+  const timeInput = card.querySelector("[data-book-time]");
+  const feedback = card.querySelector("[data-book-message]");
+  const selectedTime = timeInput.value;
+
+  if (!selectedTime) {
+    feedback.textContent = "Choose the session day and time first.";
+    return;
+  }
+
+  button.disabled = true;
+  feedback.textContent = "Checking therapist availability...";
+
+  const result = await bookSession(button.dataset.bookEmail, selectedTime, getSelectedSpecialties(), { silent: true });
+  feedback.textContent = result?.data?.message || "Unable to book right now.";
+  feedback.classList.toggle("success", Boolean(result?.ok));
+  feedback.classList.toggle("error", !result?.ok);
+  button.disabled = false;
 }
 
 async function loadProfileLanguage() {
@@ -157,10 +223,57 @@ function formatRate(rate) {
   if (!rate) return "Rate not set";
   const numericRate = Number(rate);
   if (Number.isNaN(numericRate)) {
-    return `Hourly rate: #${rate}`;
+    return `Hourly rate: NGN ${rate}`;
   }
 
-  return `Hourly rate: #${numericRate.toLocaleString()}`;
+  return `Hourly rate: NGN ${numericRate.toLocaleString()}`;
+}
+
+function formatRating(therapist) {
+  const rating = Number(therapist.rating_average || 0);
+  const count = Number(therapist.rating_count || 0);
+
+  if (!rating || !count) {
+    return "Quality rating: New therapist";
+  }
+
+  return `Quality rating: ${rating.toFixed(1)} / 5 (${count} rating${count === 1 ? "" : "s"})`;
+}
+
+function getRateValue(rate) {
+  const numericRate = Number(rate);
+  return Number.isNaN(numericRate) || numericRate <= 0 ? Number.MAX_SAFE_INTEGER : numericRate;
+}
+
+function getRatingValue(therapist) {
+  return Number(therapist.rating_average || 0);
+}
+
+function getAvailabilityScore(value) {
+  const availability = parseAvailability(value);
+
+  return availability.slots.reduce((total, slot) => {
+    const start = minutesFromTime(slot.start);
+    const end = minutesFromTime(slot.end);
+    return start === null || end === null || end <= start ? total : total + (end - start);
+  }, 0);
+}
+
+function minutesFromTime(value) {
+  if (!value || !value.includes(":")) return null;
+  const [hourValue, minuteValue] = value.split(":");
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function getBookingMinimum() {
+  const date = new Date(Date.now() + 60 * 60 * 1000);
+  date.setMinutes(Math.ceil(date.getMinutes() / 15) * 15, 0, 0);
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
 }
 
 function parseAvailability(value) {
