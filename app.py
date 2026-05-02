@@ -327,7 +327,7 @@ def init_db():
 
 init_db()
 
-app = Flask(__name__, static_folder='.', static_url_path='')
+app = Flask(__name__, static_folder=None)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 CORS_ALLOWED_ORIGINS = parse_allowed_origins()
@@ -341,8 +341,32 @@ SESSION_HOURS = 12
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCK_SECONDS = 5 * 60
 LOGIN_ATTEMPTS = {}
-ADMIN_ENTRY_PATH = '/tm-gate-7f3a9c'
-ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
+ADMIN_ENTRY_PATH = '/admin'
+ADMIN_CONSOLE_PATH = '/admin/console'
+LEGACY_ADMIN_ENTRY_PATH = '/tm-gate-7f3a9c'
+LEGACY_ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
+PUBLIC_FILES = {
+    'index.html',
+    'dashboard.html',
+    'settings.html',
+    'profile.html',
+    'match.html',
+    'chat.html',
+    'therapist.html',
+    'styles.css',
+    'script.js',
+    'dashboard.js',
+    'settings.js',
+    'profile.js',
+    'match.js',
+    'chat.js',
+    'therapist.js',
+    'support.js',
+    'mobile-nav.js',
+    'admin-login.js',
+    'admin.js',
+    'logo.png',
+}
 SESSION_PRICE_KOBO = 1100000
 DEFAULT_TOP_UP_KOBO = 500000
 MAX_CONSECUTIVE_SESSIONS = 8
@@ -3635,6 +3659,7 @@ def profile():
     return send_from_directory(app.root_path, 'profile.html')
 
 @app.route('/')
+@app.route('/login')
 def home():
     return send_from_directory(app.root_path, 'index.html')
 
@@ -3645,6 +3670,8 @@ def healthz():
 
 
 @app.route('/dashboard.html')
+@app.route('/dashboard')
+@app.route('/user')
 def dashboard():
     return send_from_directory(app.root_path, 'dashboard.html')
 
@@ -3665,16 +3692,27 @@ def admin_login_shortcut():
     abort(404)
 
 @app.route(ADMIN_ENTRY_PATH)
+@app.route(LEGACY_ADMIN_ENTRY_PATH)
 def admin_entry():
     return send_from_directory(app.root_path, 'admin-login.html')
 
 @app.route(ADMIN_CONSOLE_PATH)
+@app.route(LEGACY_ADMIN_CONSOLE_PATH)
 def admin_console():
     return send_from_directory(app.root_path, 'admin.html')
 
 @app.route('/therapist.html')
+@app.route('/therapist')
 def therapist():
     return send_from_directory(app.root_path, 'therapist.html')
+
+
+@app.route('/<path:filename>')
+def public_file(filename):
+    if filename in PUBLIC_FILES:
+        return send_from_directory(app.root_path, filename)
+    abort(404)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))

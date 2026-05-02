@@ -1,5 +1,5 @@
 const API_BASE = "";
-const ADMIN_ENTRY_PATH = "/tm-gate-7f3a9c";
+const ADMIN_ENTRY_PATH = "/admin";
 
 document.addEventListener("DOMContentLoaded", () => {
   if (localStorage.getItem("userRole") !== "admin" || !localStorage.getItem("sessionToken")) {
