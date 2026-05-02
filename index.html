@@ -23,6 +23,9 @@
 
     <input type="email" id="email" placeholder="Enter email" autocomplete="email" required>
     <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" minlength="8" required>
+    <input type="text" id="website" class="bot-field" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <input type="hidden" id="signupStartedAt">
+    <div id="turnstileWidget" class="turnstile-widget"></div>
 
     <button type="button" onclick="signup()">Create Account</button>
     <button type="button" onclick="login()">Login</button>
@@ -32,6 +35,7 @@
   </div>
 
   <script src="script.js"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   <script src="https://js.paystack.co/v1/inline.js"></script>
   <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
 

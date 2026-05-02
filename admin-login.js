@@ -1,4 +1,6 @@
 const ADMIN_CONSOLE_PATH = "/tm-console-7f3a9c";
+let adminTurnstileToken = "";
+let adminTurnstileRequired = false;
 
 function getAdminEmail() {
   return document.getElementById("adminEmail").value.trim().toLowerCase();
@@ -10,6 +12,60 @@ function getAdminPassword() {
 
 function showAdminMessage(message) {
   document.getElementById("adminMessage").textContent = message;
+}
+
+function getAdminSignupStartedAt() {
+  const startedAt = document.getElementById("adminSignupStartedAt");
+  return startedAt ? startedAt.value : "";
+}
+
+function getAdminWebsiteTrapValue() {
+  const website = document.getElementById("adminWebsite");
+  return website ? website.value : "";
+}
+
+function resetAdminTurnstileWidget() {
+  if (window.turnstile && adminTurnstileToken) {
+    window.turnstile.reset();
+  }
+  adminTurnstileToken = "";
+}
+
+async function loadAdminTurnstile() {
+  const widget = document.getElementById("adminTurnstileWidget");
+  if (!widget) return;
+
+  try {
+    const res = await fetch("/security_config");
+    const config = await res.json();
+    adminTurnstileRequired = Boolean(config.turnstile_enabled);
+
+    if (!adminTurnstileRequired || !config.turnstile_site_key) return;
+
+    const renderWidget = () => {
+      if (!window.turnstile) {
+        setTimeout(renderWidget, 150);
+        return;
+      }
+
+      window.turnstile.render(widget, {
+        sitekey: config.turnstile_site_key,
+        callback: token => {
+          adminTurnstileToken = token;
+        },
+        "expired-callback": () => {
+          adminTurnstileToken = "";
+        },
+        "error-callback": () => {
+          adminTurnstileToken = "";
+        }
+      });
+    };
+
+    renderWidget();
+  } catch (error) {
+    console.error("Security config error:", error);
+  }
 }
 
 function isValidAdminEmail(email) {
@@ -77,10 +133,18 @@ async function createAdminAccount() {
     return;
   }
 
+  if (adminTurnstileRequired && !adminTurnstileToken) {
+    showAdminMessage("Please complete the verification check.");
+    return;
+  }
+
   const adminCode = prompt("Enter the admin signup code if one was provided.");
   const payload = {
     ...credentials,
-    role: "admin"
+    role: "admin",
+    signup_started_at: getAdminSignupStartedAt(),
+    website: getAdminWebsiteTrapValue(),
+    turnstile_token: adminTurnstileToken
   };
 
   if (adminCode) {
@@ -99,6 +163,7 @@ async function createAdminAccount() {
 
     if (!res.ok) {
       showAdminMessage(data.message || "Unable to create admin account.");
+      resetAdminTurnstileWidget();
       return;
     }
 
@@ -109,5 +174,13 @@ async function createAdminAccount() {
   } catch (error) {
     console.error("Admin signup error:", error);
     showAdminMessage("Connection error. Is the server running?");
+    resetAdminTurnstileWidget();
   }
 }
+
+const adminSignupStartedAt = document.getElementById("adminSignupStartedAt");
+if (adminSignupStartedAt) {
+  adminSignupStartedAt.value = String(Date.now());
+}
+
+loadAdminTurnstile();

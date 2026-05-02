@@ -341,6 +341,12 @@ SESSION_HOURS = 12
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCK_SECONDS = 5 * 60
 LOGIN_ATTEMPTS = {}
+MAX_SIGNUP_ATTEMPTS_PER_IP = 8
+MAX_SIGNUP_ATTEMPTS_PER_EMAIL = 3
+SIGNUP_WINDOW_SECONDS = 60 * 60
+MIN_SIGNUP_FORM_SECONDS = 2
+MAX_SIGNUP_FORM_SECONDS = 60 * 60
+SIGNUP_ATTEMPTS = {}
 ADMIN_ENTRY_PATH = '/admin'
 ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
 LEGACY_ADMIN_ENTRY_PATH = '/tm-gate-7f3a9c'
@@ -411,6 +417,108 @@ def normalize_email(email):
 
 def is_valid_email(email):
     return bool(EMAIL_PATTERN.fullmatch(normalize_email(email)))
+
+
+def get_request_ip():
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+def prune_attempts(key):
+    now = time.time()
+    attempts = [
+        attempt
+        for attempt in SIGNUP_ATTEMPTS.get(key, [])
+        if now - attempt < SIGNUP_WINDOW_SECONDS
+    ]
+
+    if attempts:
+        SIGNUP_ATTEMPTS[key] = attempts
+    else:
+        SIGNUP_ATTEMPTS.pop(key, None)
+
+    return attempts
+
+
+def is_signup_limited(email):
+    ip_attempts = prune_attempts(f"ip:{get_request_ip()}")
+    email_attempts = prune_attempts(f"email:{normalize_email(email)}")
+    return (
+        len(ip_attempts) >= MAX_SIGNUP_ATTEMPTS_PER_IP
+        or len(email_attempts) >= MAX_SIGNUP_ATTEMPTS_PER_EMAIL
+    )
+
+
+def record_signup_attempt(email):
+    now = time.time()
+    keys = [f"ip:{get_request_ip()}"]
+    if email:
+        keys.append(f"email:{normalize_email(email)}")
+
+    for key in keys:
+        attempts = prune_attempts(key)
+        attempts.append(now)
+        SIGNUP_ATTEMPTS[key] = attempts
+
+
+def validate_signup_browser_checks(data):
+    if data.get('website'):
+        return "We could not create this account. Please try again."
+
+    started_at = data.get('signup_started_at')
+    try:
+        started_at = float(started_at)
+    except (TypeError, ValueError):
+        return "Please refresh the page and try again."
+
+    elapsed_seconds = time.time() - (started_at / 1000)
+    if elapsed_seconds < MIN_SIGNUP_FORM_SECONDS:
+        return "Please wait a moment before creating an account."
+
+    if elapsed_seconds > MAX_SIGNUP_FORM_SECONDS:
+        return "Please refresh the page and try again."
+
+    return ""
+
+
+def get_turnstile_site_key():
+    return os.environ.get('TURNSTILE_SITE_KEY', '').strip()
+
+
+def get_turnstile_secret_key():
+    return os.environ.get('TURNSTILE_SECRET_KEY', '').strip()
+
+
+def validate_turnstile_token(token):
+    secret_key = get_turnstile_secret_key()
+    if not secret_key:
+        return True, ""
+
+    if not token:
+        return False, "Please complete the verification check."
+
+    try:
+        response = requests.post(
+            "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+            data={
+                "secret": secret_key,
+                "response": token,
+                "remoteip": get_request_ip()
+            },
+            timeout=5
+        )
+        result = response.json()
+    except requests.RequestException:
+        return False, "Verification is unavailable right now. Please try again."
+    except ValueError:
+        return False, "Verification failed. Please try again."
+
+    if not result.get("success"):
+        return False, "Verification failed. Please try again."
+
+    return True, ""
 
 
 def validate_password_strength(password):
@@ -1378,14 +1486,30 @@ def signup():
     password = data.get('password')
     role = data.get('role')
 
+    signup_browser_message = validate_signup_browser_checks(data)
+    if signup_browser_message:
+        record_signup_attempt(email)
+        return jsonify({"message": signup_browser_message}), 400
+
+    if is_signup_limited(email):
+        return jsonify({"message": "Too many signup attempts. Please wait and try again later."}), 429
+
+    turnstile_ok, turnstile_message = validate_turnstile_token(data.get('turnstile_token'))
+    if not turnstile_ok:
+        record_signup_attempt(email)
+        return jsonify({"message": turnstile_message}), 400
+
     if not email or not password or role not in ('user', 'therapist', 'admin'):
+        record_signup_attempt(email)
         return jsonify({"message": "Please enter a valid email, password, and role"}), 400
 
     if not is_valid_email(email):
+        record_signup_attempt(email)
         return jsonify({"message": "Please enter a valid email address"}), 400
 
     password_message = validate_password_strength(password)
     if password_message:
+        record_signup_attempt(email)
         return jsonify({"message": password_message}), 400
 
     conn = get_db_connection()
@@ -1398,15 +1522,18 @@ def signup():
 
         if admin_signup_code and data.get('admin_code') != admin_signup_code:
             conn.close()
+            record_signup_attempt(email)
             return jsonify({"message": "Admin signup code is required"}), 403
 
         if admin_exists and not admin_signup_code:
             conn.close()
+            record_signup_attempt(email)
             return jsonify({"message": "Admin signup is locked. Ask the current admin to create access."}), 403
 
     cursor.execute("SELECT id FROM users WHERE email=?", (email,))
     if cursor.fetchone():
         conn.close()
+        record_signup_attempt(email)
         return jsonify({"message": "An account with this email already exists"}), 409
 
     verification_status = 'draft' if role == 'therapist' else 'verified'
@@ -1425,6 +1552,7 @@ def signup():
     conn.commit()
     conn.close()
 
+    record_signup_attempt(email)
     return jsonify({"message": "Account created", "role": role, "token": token})
 
 @app.route('/login', methods=['POST'])
@@ -3667,6 +3795,15 @@ def home():
 @app.route('/healthz')
 def healthz():
     return jsonify({"status": "ok"})
+
+
+@app.route('/security_config')
+def security_config():
+    site_key = get_turnstile_site_key()
+    return jsonify({
+        "turnstile_enabled": bool(site_key),
+        "turnstile_site_key": site_key
+    })
 
 
 @app.route('/dashboard.html')
