@@ -35,6 +35,21 @@ For stronger free protection, create Cloudflare Turnstile keys and add these Ren
 
 When both are set, `/signup` requires a valid Turnstile token verified by the Flask backend.
 
+## Real Email Verification
+
+New user and therapist accounts must verify email ownership before login. Add SMTP environment variables in Render:
+
+- `APP_BASE_URL`: your Render URL, for example `https://therapist-match-lhh8.onrender.com`
+- `SMTP_HOST`: for Gmail, `smtp.gmail.com`
+- `SMTP_PORT`: usually `587`
+- `SMTP_USERNAME`: the email account sending messages
+- `SMTP_PASSWORD`: SMTP/app password
+- `SMTP_FROM_EMAIL`: the sender email
+- `SMTP_FROM_NAME`: for example `TherapistMatch`
+- `SMTP_USE_SSL`: `0` for port `587`
+
+For Gmail, use a Google app password instead of your normal Gmail password.
+
 ## Free Plan Storage Warning
 
 This free setup uses SQLite and local uploads on Render's temporary filesystem. It is good for a demo, but accounts, admin users, bookings, uploaded therapist documents, and payments can disappear when the service redeploys, restarts, or spins down.

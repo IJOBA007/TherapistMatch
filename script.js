@@ -18,6 +18,13 @@ function showAuthMessage(message) {
   }
 }
 
+function setVerificationActionVisible(visible) {
+  const button = document.getElementById("resendVerificationButton");
+  if (button) {
+    button.hidden = !visible;
+  }
+}
+
 function getSignupStartedAt() {
   const startedAt = document.getElementById("signupStartedAt");
   return startedAt ? startedAt.value : "";
@@ -130,6 +137,14 @@ async function signup() {
     const data = await res.json();
     console.log("Signup response:", data);
 
+    if (res.ok && data.email_verification_required) {
+      localStorage.clear();
+      showAuthMessage(data.message || "Check your email to verify your account before logging in.");
+      setVerificationActionVisible(true);
+      resetTurnstileWidget();
+      return;
+    }
+
     if (res.ok) {
       localStorage.setItem("userRole", role);
       localStorage.setItem("email", email);
@@ -205,9 +220,31 @@ async function login() {
       }
     } else {
       showAuthMessage(data.message || "Login failed");
+      setVerificationActionVisible(Boolean(data.email_verification_required));
     }
   } catch (error) {
     console.error("Login error:", error);
+    showAuthMessage("Connection error. Is the server running?");
+  }
+}
+
+async function resendVerificationEmail() {
+  const email = getEmailValue();
+  if (!isValidEmail(email)) {
+    showAuthMessage("Enter the email you used to sign up.");
+    return;
+  }
+
+  try {
+    const res = await fetch("/resend_verification_email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    showAuthMessage(data.message || "Please check your inbox.");
+  } catch (error) {
+    console.error("Verification resend error:", error);
     showAuthMessage("Connection error. Is the server running?");
   }
 }

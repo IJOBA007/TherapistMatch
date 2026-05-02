@@ -9,8 +9,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("therapists").addEventListener("click", handleReviewAction);
   document.getElementById("people").addEventListener("click", handlePersonAction);
+  document.getElementById("people").addEventListener("change", handlePeopleSelectionChange);
   document.getElementById("payments").addEventListener("click", handlePaymentAction);
   document.getElementById("supportInbox").addEventListener("click", handleSupportAction);
+  document.getElementById("selectAllPeople").addEventListener("change", toggleAllPeopleSelection);
+  document.getElementById("bulkKickPeople").addEventListener("click", bulkKickPeople);
   document.getElementById("paymentSearchBtn").addEventListener("click", loadPayments);
   document.getElementById("paymentSearch").addEventListener("keydown", event => {
     if (event.key === "Enter") {
@@ -140,6 +143,7 @@ async function loadPeople() {
     const therapists = people.filter(person => person.role === "therapist");
 
     peopleCount.textContent = `${users.length} users / ${therapists.length} therapists`;
+    updatePeopleSelectionState();
 
     if (!people.length) {
       container.innerHTML = `
@@ -148,10 +152,12 @@ async function loadPeople() {
           <p>Client and therapist accounts will appear here after signup.</p>
         </div>
       `;
+      updatePeopleSelectionState();
       return;
     }
 
     container.innerHTML = people.map(renderPersonCard).join("");
+    updatePeopleSelectionState();
   } catch (error) {
     console.error(error);
     container.innerHTML = `
@@ -167,13 +173,19 @@ function renderPersonCard(person) {
   const status = person.role === "therapist"
     ? person.verification_status || (person.verified ? "verified" : "draft")
     : "client";
+  const emailStatus = person.email_verified ? "Email verified" : "Email unverified";
 
   return `
     <article class="admin-application compact-card person-card">
       <div class="admin-application-header">
+        <label class="person-select">
+          <input type="checkbox" class="person-checkbox" value="${escapeAttribute(person.email)}">
+          <span>Select</span>
+        </label>
         <div>
           <p class="eyebrow">${escapeHTML(person.role)}</p>
           <h3>${escapeHTML(person.email)}</h3>
+          <p>${escapeHTML(emailStatus)}</p>
         </div>
         <span class="person-status">${escapeHTML(status)}</span>
       </div>
@@ -199,6 +211,68 @@ async function handlePersonAction(event) {
     method: "POST",
     headers: authHeaders({"Content-Type": "application/json"}),
     body: JSON.stringify({ email })
+  });
+  if (handleUnauthorized(res)) return;
+
+  const data = await res.json();
+  alert(data.message);
+
+  if (res.ok) {
+    loadPeople();
+    loadTherapists();
+  }
+}
+
+function selectedPeopleEmails() {
+  return Array.from(document.querySelectorAll(".person-checkbox:checked"))
+    .map(checkbox => checkbox.value);
+}
+
+function updatePeopleSelectionState() {
+  const checkboxes = Array.from(document.querySelectorAll(".person-checkbox"));
+  const selected = selectedPeopleEmails();
+  const selectedCount = document.getElementById("selectedPeopleCount");
+  const bulkButton = document.getElementById("bulkKickPeople");
+  const selectAll = document.getElementById("selectAllPeople");
+
+  if (selectedCount) {
+    selectedCount.textContent = `${selected.length} selected`;
+  }
+
+  if (bulkButton) {
+    bulkButton.disabled = selected.length === 0;
+  }
+
+  if (selectAll) {
+    selectAll.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
+    selectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
+  }
+}
+
+function handlePeopleSelectionChange(event) {
+  if (!event.target.classList.contains("person-checkbox")) return;
+  updatePeopleSelectionState();
+}
+
+function toggleAllPeopleSelection(event) {
+  document.querySelectorAll(".person-checkbox").forEach(checkbox => {
+    checkbox.checked = event.target.checked;
+  });
+  updatePeopleSelectionState();
+}
+
+async function bulkKickPeople() {
+  const emails = selectedPeopleEmails();
+  if (!emails.length) return;
+
+  if (!confirm(`Kick out ${emails.length} selected account${emails.length === 1 ? "" : "s"}? This will cancel their bookings and remove their accounts.`)) {
+    return;
+  }
+
+  const res = await fetch(`${API_BASE}/admin_bulk_delete_accounts`, {
+    method: "POST",
+    headers: authHeaders({"Content-Type": "application/json"}),
+    body: JSON.stringify({ emails })
   });
   if (handleUnauthorized(res)) return;
 

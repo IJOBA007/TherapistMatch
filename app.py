@@ -3,7 +3,10 @@ import json
 import re
 import secrets
 import time
+import smtplib
+import ssl
 from datetime import datetime, timedelta
+from email.message import EmailMessage
 from uuid import uuid4
 from flask import Flask, request, jsonify, send_from_directory, abort
 from flask_cors import CORS
@@ -221,6 +224,14 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN payout_verified_at TEXT")
     if "payout_updated_at" not in existing_columns:
         cursor.execute("ALTER TABLE users ADD COLUMN payout_updated_at TEXT")
+    if "email_verified" not in existing_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 1")
+    if "email_verification_token" not in existing_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN email_verification_token TEXT")
+    if "email_verification_code" not in existing_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN email_verification_code TEXT")
+    if "email_verification_expires_at" not in existing_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN email_verification_expires_at TEXT")
 
     migration_now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
     cursor.execute("""
@@ -347,6 +358,7 @@ SIGNUP_WINDOW_SECONDS = 60 * 60
 MIN_SIGNUP_FORM_SECONDS = 2
 MAX_SIGNUP_FORM_SECONDS = 60 * 60
 SIGNUP_ATTEMPTS = {}
+EMAIL_VERIFICATION_HOURS = 24
 ADMIN_ENTRY_PATH = '/admin'
 ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
 LEGACY_ADMIN_ENTRY_PATH = '/tm-gate-7f3a9c'
@@ -519,6 +531,79 @@ def validate_turnstile_token(token):
         return False, "Verification failed. Please try again."
 
     return True, ""
+
+
+def smtp_configured():
+    return bool(os.environ.get('SMTP_HOST', '').strip() and os.environ.get('SMTP_FROM_EMAIL', '').strip())
+
+
+def generate_email_verification():
+    return {
+        "token": secrets.token_urlsafe(32),
+        "code": f"{secrets.randbelow(1000000):06d}",
+        "expires_at": future_iso(EMAIL_VERIFICATION_HOURS)
+    }
+
+
+def verification_link(token):
+    base_url = os.environ.get('APP_BASE_URL', '').strip().rstrip('/')
+    if not base_url:
+        base_url = request.url_root.rstrip('/')
+    return f"{base_url}/verify_email?token={token}"
+
+
+def send_email(to_email, subject, body):
+    smtp_host = os.environ.get('SMTP_HOST', '').strip()
+    from_email = os.environ.get('SMTP_FROM_EMAIL', '').strip()
+    if not smtp_host or not from_email:
+        return False, "SMTP email is not configured"
+
+    smtp_port = int(os.environ.get('SMTP_PORT', '587') or 587)
+    smtp_username = os.environ.get('SMTP_USERNAME', '').strip()
+    smtp_password = os.environ.get('SMTP_PASSWORD', '').strip()
+    use_ssl = os.environ.get('SMTP_USE_SSL', '').strip() == '1'
+    from_name = os.environ.get('SMTP_FROM_NAME', 'TherapistMatch').strip() or 'TherapistMatch'
+
+    message = EmailMessage()
+    message['Subject'] = subject
+    message['From'] = f"{from_name} <{from_email}>"
+    message['To'] = to_email
+    message.set_content(body)
+
+    try:
+        if use_ssl:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=10) as server:
+                if smtp_username or smtp_password:
+                    server.login(smtp_username, smtp_password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+                if smtp_username or smtp_password:
+                    server.login(smtp_username, smtp_password)
+                server.send_message(message)
+    except (OSError, smtplib.SMTPException) as error:
+        return False, str(error)
+
+    return True, ""
+
+
+def send_verification_email(email, token, code):
+    link = verification_link(token)
+    body = f"""Welcome to TherapistMatch.
+
+Please verify your email before logging in:
+
+{link}
+
+Your verification code is: {code}
+
+This verification expires in {EMAIL_VERIFICATION_HOURS} hours. If you did not create this account, you can ignore this email.
+"""
+    return send_email(email, "Verify your TherapistMatch email", body)
 
 
 def validate_password_strength(password):
@@ -1537,23 +1622,210 @@ def signup():
         return jsonify({"message": "An account with this email already exists"}), 409
 
     verification_status = 'draft' if role == 'therapist' else 'verified'
+    email_verification = generate_email_verification()
+    email_verified = 1 if role == 'admin' else 0
 
     password_hash = generate_password_hash(password)
 
     cursor.execute(
         """
-        INSERT INTO users (email, password, role, verification_status, created_at, last_seen_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (
+            email, password, role, verification_status, created_at, last_seen_at,
+            email_verified, email_verification_token, email_verification_code,
+            email_verification_expires_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (email, password_hash, role, verification_status, now_iso(), now_iso())
+        (
+            email,
+            password_hash,
+            role,
+            verification_status,
+            now_iso(),
+            now_iso(),
+            email_verified,
+            None if email_verified else email_verification["token"],
+            None if email_verified else email_verification["code"],
+            None if email_verified else email_verification["expires_at"]
+        )
     )
-    token = create_session(cursor, email, role)
+
+    token = create_session(cursor, email, role) if email_verified else ""
 
     conn.commit()
     conn.close()
 
+    email_sent = False
+    if not email_verified:
+        email_sent, _ = send_verification_email(
+            email,
+            email_verification["token"],
+            email_verification["code"]
+        )
+
     record_signup_attempt(email)
-    return jsonify({"message": "Account created", "role": role, "token": token})
+    if not email_verified:
+        message = "Account created. Check your email to verify your account before logging in."
+        if not email_sent:
+            message = "Account created, but email sending is not configured yet. Ask the site owner to enable verification email."
+        return jsonify({
+            "message": message,
+            "role": role,
+            "token": token,
+            "email_verification_required": True,
+            "email_sent": email_sent
+        })
+
+    return jsonify({"message": "Account created", "role": role, "token": token, "email_verification_required": False})
+
+
+@app.route('/verify_email', methods=['GET', 'POST'])
+def verify_email():
+    if request.method == 'GET':
+        token = (request.args.get('token') or '').strip()
+        if not token:
+            return "<h1>Verification failed</h1><p>Missing verification token.</p>", 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT email FROM users
+        WHERE email_verification_token=?
+          AND COALESCE(email_verified, 0)=0
+          AND email_verification_expires_at > ?
+        LIMIT 1
+        """, (token, now_iso()))
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            return "<h1>Verification failed</h1><p>This verification link is invalid or expired.</p>", 400
+
+        cursor.execute("""
+        UPDATE users
+        SET email_verified=1,
+            email_verification_token=NULL,
+            email_verification_code=NULL,
+            email_verification_expires_at=NULL
+        WHERE email=?
+        """, (row[0],))
+        conn.commit()
+        conn.close()
+
+        return """
+        <!doctype html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Email Verified - TherapistMatch</title>
+          <link rel="stylesheet" href="/styles.css">
+        </head>
+        <body class="redirect-page">
+          <main class="auth-container">
+            <h2>Email verified</h2>
+            <p>You can now log in to TherapistMatch.</p>
+            <a href="/">Go to login</a>
+          </main>
+        </body>
+        </html>
+        """
+
+    data = request.get_json() or {}
+    email = normalize_email(data.get('email'))
+    code = str(data.get('code') or '').strip()
+
+    if not is_valid_email(email) or not re.fullmatch(r"\d{6}", code):
+        return jsonify({"message": "Enter your email and 6-digit verification code"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT id FROM users
+    WHERE email=?
+      AND email_verification_code=?
+      AND COALESCE(email_verified, 0)=0
+      AND email_verification_expires_at > ?
+    LIMIT 1
+    """, (email, code, now_iso()))
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"message": "Verification code is invalid or expired"}), 400
+
+    cursor.execute("""
+    UPDATE users
+    SET email_verified=1,
+        email_verification_token=NULL,
+        email_verification_code=NULL,
+        email_verification_expires_at=NULL
+    WHERE id=?
+    """, (row[0],))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Email verified. You can now log in."})
+
+
+@app.route('/resend_verification_email', methods=['POST'])
+def resend_verification_email():
+    data = request.get_json() or {}
+    email = normalize_email(data.get('email'))
+
+    if not is_valid_email(email):
+        return jsonify({"message": "Enter a valid email address"}), 400
+
+    if is_signup_limited(email):
+        return jsonify({"message": "Too many verification email requests. Please wait and try again later."}), 429
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT id, COALESCE(email_verified, 1), role
+    FROM users
+    WHERE email=?
+    LIMIT 1
+    """, (email,))
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        record_signup_attempt(email)
+        return jsonify({"message": "If that account exists, a verification email will be sent."})
+
+    if row[1]:
+        conn.close()
+        return jsonify({"message": "This email is already verified."})
+
+    email_verification = generate_email_verification()
+    cursor.execute("""
+    UPDATE users
+    SET email_verification_token=?,
+        email_verification_code=?,
+        email_verification_expires_at=?
+    WHERE id=?
+    """, (
+        email_verification["token"],
+        email_verification["code"],
+        email_verification["expires_at"],
+        row[0]
+    ))
+    conn.commit()
+    conn.close()
+
+    email_sent, _ = send_verification_email(
+        email,
+        email_verification["token"],
+        email_verification["code"]
+    )
+    record_signup_attempt(email)
+
+    if not email_sent:
+        return jsonify({"message": "Email sending is not configured yet. Ask the site owner to enable verification email."}), 503
+
+    return jsonify({"message": "Verification email sent. Please check your inbox."})
+
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -1580,7 +1852,7 @@ def login():
 
     if expected_role:
         cursor.execute("""
-        SELECT id, password, role, verified, verification_status
+        SELECT id, password, role, verified, verification_status, COALESCE(email_verified, 1)
         FROM users
         WHERE email=? AND role=?
         ORDER BY id DESC
@@ -1588,7 +1860,7 @@ def login():
         """, (email, expected_role))
     else:
         cursor.execute("""
-        SELECT id, password, role, verified, verification_status
+        SELECT id, password, role, verified, verification_status, COALESCE(email_verified, 1)
         FROM users
         WHERE email=?
         ORDER BY id DESC
@@ -1602,11 +1874,19 @@ def login():
         role = user[2]
         verified = user[3]
         status = user[4] or ('verified' if verified else 'draft')
+        email_verified = user[5]
 
         if expected_role and role != expected_role:
             conn.close()
             record_failed_login(email)
             return jsonify({"message": "Please use the correct login page for this account"}), 403
+
+        if role in ('user', 'therapist') and not email_verified:
+            conn.close()
+            return jsonify({
+                "message": "Please verify your email before logging in.",
+                "email_verification_required": True
+            }), 403
 
         if not is_password_hash(stored_password):
             cursor.execute(
@@ -1650,14 +1930,12 @@ def update_profile():
 
     cursor.execute("""
     UPDATE users SET name=?, dob=?, gender=?, location=?, primary_language=?, secondary_language=?, specialties=?
-    WHERE email=? AND role='user'
+    WHERE email=? AND role='user' AND COALESCE(email_verified, 1)=1
     """, (name, dob, gender, location, primary_language, secondary_language, specialties, email))
 
     if cursor.rowcount == 0:
-        cursor.execute("""
-        INSERT INTO users (email, name, dob, gender, location, primary_language, secondary_language, specialties, role)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (email, name, dob, gender, location, primary_language, secondary_language, specialties, 'user'))
+        conn.close()
+        return jsonify({"message": "Please create and verify an account before updating your profile"}), 404
 
     conn.commit()
     conn.close()
@@ -3143,7 +3421,8 @@ def get_people():
     SELECT u.email, u.role,
            u.verified, u.verification_status, u.created_at, u.last_login_at, u.last_seen_at,
            COALESCE(client_bookings.total, 0), COALESCE(therapist_bookings.total, 0),
-           COALESCE(payments.total, 0), COALESCE(support.total, 0)
+           COALESCE(payments.total, 0), COALESCE(support.total, 0),
+           COALESCE(u.email_verified, 1)
     FROM users u
     LEFT JOIN (
         SELECT user_email, COUNT(*) AS total
@@ -3185,7 +3464,8 @@ def get_people():
                 "client_bookings": row[7],
                 "therapist_bookings": row[8],
                 "payments": row[9],
-                "support_messages": row[10]
+                "support_messages": row[10],
+                "email_verified": bool(row[11])
             }
             for row in people
         ]
@@ -3217,6 +3497,15 @@ def admin_delete_account():
         conn.close()
         return jsonify({"message": "Only user and therapist accounts can be kicked out here"}), 403
 
+    delete_account_data(cursor, email)
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": f"{email} has been kicked out"})
+
+
+def delete_account_data(cursor, email):
     cursor.execute("DELETE FROM sessions WHERE user_email=?", (email,))
     cursor.execute("""
     UPDATE bookings
@@ -3228,10 +3517,65 @@ def admin_delete_account():
     cursor.execute("DELETE FROM therapist_reviews WHERE user_email=? OR therapist_email=?", (email, email))
     cursor.execute("DELETE FROM users WHERE email=? AND role IN ('user', 'therapist')", (email,))
 
+
+@app.route('/admin_bulk_delete_accounts', methods=['POST'])
+def admin_bulk_delete_accounts():
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
+    data = request.get_json() or {}
+    emails = data.get('emails') or []
+
+    if not isinstance(emails, list):
+        return jsonify({"message": "Choose accounts to kick out"}), 400
+
+    normalized_emails = []
+    for email in emails:
+        normalized = normalize_email(email)
+        if normalized and normalized not in normalized_emails:
+            normalized_emails.append(normalized)
+
+    if not normalized_emails:
+        return jsonify({"message": "Choose accounts to kick out"}), 400
+
+    if len(normalized_emails) > 100:
+        return jsonify({"message": "You can kick out up to 100 accounts at a time"}), 400
+
+    invalid_emails = [email for email in normalized_emails if not is_valid_email(email)]
+    if invalid_emails:
+        return jsonify({"message": "One or more selected emails are invalid"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    placeholders = ",".join("?" for _ in normalized_emails)
+    cursor.execute(f"""
+    SELECT email, role
+    FROM users
+    WHERE email IN ({placeholders})
+    """, normalized_emails)
+    accounts = cursor.fetchall()
+    account_lookup = {row[0]: row[1] for row in accounts}
+
+    deleted = []
+    skipped = []
+    for email in normalized_emails:
+        role = account_lookup.get(email)
+        if role not in ('user', 'therapist'):
+            skipped.append(email)
+            continue
+        delete_account_data(cursor, email)
+        deleted.append(email)
+
     conn.commit()
     conn.close()
 
-    return jsonify({"message": f"{email} has been kicked out"})
+    return jsonify({
+        "message": f"Kicked out {len(deleted)} account{'s' if len(deleted) != 1 else ''}."
+                   + (f" Skipped {len(skipped)}." if skipped else ""),
+        "deleted": deleted,
+        "skipped": skipped
+    })
 
 
 @app.route('/pay', methods=['POST'])
