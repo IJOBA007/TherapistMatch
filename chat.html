@@ -1,8 +1,57 @@
-<h2>Chat</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <aside id="chatSidebar" class="sidebar"></aside>
 
-<div id="chatBox"></div>
+    <main class="main-content">
+      <section class="chat-shell">
+        <aside class="chat-thread-panel">
+          <div class="chat-heading">
+            <p class="eyebrow">Chat</p>
+            <h1>Sessions</h1>
+            <p id="chatIntro">Accepted paid sessions appear here.</p>
+          </div>
+          <div id="threadList" class="thread-list"></div>
+        </aside>
 
-<input id="msg" placeholder="Type message">
-<button onclick="sendMsg()">Send</button>
+        <section class="chat-panel">
+          <div id="chatEmpty" class="empty-state">
+            <strong>Select a conversation</strong>
+            <p>Chat and Google Meet unlock after the client has paid and the therapist accepts the booking.</p>
+          </div>
 
-<script src="chat.js"></script>
+          <div id="chatRoom" class="chat-room" hidden>
+            <header class="chat-room-header">
+              <div>
+                <p class="eyebrow" id="chatStatus">Ready</p>
+                <h2 id="chatTitle"></h2>
+                <p id="chatSubtitle"></p>
+              </div>
+              <div id="sessionTimer" class="session-timer" aria-live="polite">Timer starts after both sides message.</div>
+              <a id="meetLink" class="meet-button" href="https://meet.google.com/new" target="_blank" rel="noopener">Google Meet</a>
+            </header>
+
+            <div id="chatBox" class="chat-box"></div>
+
+            <form id="chatForm" class="chat-composer">
+              <input id="msg" autocomplete="off" placeholder="Type message">
+              <button type="submit">Send</button>
+            </form>
+            <p id="chatMessage" class="chat-message"></p>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="chat.js"></script>
+  <script src="mobile-nav.js"></script>
+</body>
+</html>

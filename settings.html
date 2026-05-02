@@ -11,9 +11,10 @@
   <div class="dashboard">
     <div class="sidebar">
       <h2>TherapistMatch</h2>
-      <a href="dashboard.html">Dashboard</a>
-      <a href="match.html">Find Therapist</a>
-      <a href="settings.html" class="active">Settings</a>
+      <a href="dashboard.html">Dashboard <span class="nav-badge" data-badge="dashboard"></span></a>
+      <a href="match.html">Find Therapist <span class="nav-badge" data-badge="find"></span></a>
+      <a href="chat.html">Chat <span class="nav-badge" data-badge="chat"></span></a>
+      <a href="settings.html" class="active">Settings <span class="nav-badge" data-badge="settings"></span></a>
     </div>
 
     <main class="main-content">
@@ -96,18 +97,33 @@
         <section class="settings-panel payment-panel">
           <div class="settings-panel-header">
             <div>
-              <h2>Payments</h2>
-              <p>Pay securely with Paystack. Admin can see payment status after checkout.</p>
+              <h2>Session Account</h2>
+              <p>Top up here, then pay for an accepted session from your dashboard.</p>
             </div>
           </div>
 
-          <div class="payment-summary">
-            <span>Therapy session deposit</span>
-            <strong>NGN 5,000</strong>
+          <div class="payment-summary account-balance-summary">
+            <span>Available balance</span>
+            <strong id="accountBalance">NGN 0</strong>
           </div>
 
-          <button type="button" id="paystackButton">Pay with Paystack</button>
-          <button type="button" id="recordPaymentButton" class="ghost-button">Record Test Payment</button>
+          <div class="payment-summary">
+            <span>Pending verification</span>
+            <strong id="pendingBalance">NGN 0</strong>
+          </div>
+
+          <div class="payment-summary">
+            <span>Session price</span>
+            <strong id="sessionPrice">NGN 11,000</strong>
+          </div>
+
+          <div class="payment-summary">
+            <span>Top-up amount</span>
+            <input id="topUpAmountInput" type="number" min="1000" step="1000" value="11000">
+          </div>
+
+          <button type="button" id="paystackButton">Top Up with Paystack</button>
+          <button type="button" id="recordPaymentButton" class="ghost-button">Record Test Top-Up</button>
           <p id="paymentMessage" class="payment-message"></p>
         </section>
       </section>

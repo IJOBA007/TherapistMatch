@@ -3,6 +3,7 @@ const MIN_SPECIALTIES = 1;
 const MAX_SPECIALTIES = 4;
 
 let therapistProfile = null;
+let payoutBanks = [];
 
 document.addEventListener("DOMContentLoaded", () => {
   initTherapistPortal();
@@ -20,10 +21,178 @@ async function initTherapistPortal() {
   bindNavigation();
   bindSpecialtyPicker();
   bindAvailabilityBuilder();
+  bindOnlineStatusToggle();
+  bindDuplicateCleanup();
+  bindPayoutAccount();
   document.getElementById("credentialsForm").addEventListener("submit", submitCredentials);
 
+  await loadPayoutBanks();
   await loadTherapistProfile();
   await loadBookings();
+  await loadNotifications();
+}
+
+async function loadNotifications() {
+  const email = localStorage.getItem("email");
+  
+  try {
+    const res = await fetch("/get_notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role: "therapist" })
+    });
+    
+    const data = await res.json();
+    
+    // Update booking notification badge
+    const bookingBadge = document.querySelector("[data-badge='bookings']");
+    if (bookingBadge && data.bookings > 0) {
+      bookingBadge.textContent = data.bookings;
+      bookingBadge.style.display = "inline-block";
+    } else if (bookingBadge) {
+      bookingBadge.style.display = "none";
+    }
+  } catch (error) {
+    console.error("Notification load failed:", error);
+  }
+}
+
+function bindOnlineStatusToggle() {
+  const toggle = document.getElementById("onlineStatusToggle");
+  if (!toggle) return;
+  
+  toggle.addEventListener("change", async () => {
+    const isOnline = toggle.checked;
+    const email = localStorage.getItem("email");
+    toggle.disabled = true;
+    
+    try {
+      const res = await fetch("/set_online_status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email,
+          online_status: isOnline ? "online" : "offline",
+          manual_availability: isOnline
+        })
+      });
+      
+      const data = await res.json();
+      alert(data.message);
+
+      if (!res.ok) {
+        toggle.checked = !isOnline;
+      } else if (therapistProfile) {
+        therapistProfile.online_status = isOnline ? "online" : "offline";
+        therapistProfile.manual_availability = isOnline ? 1 : 0;
+        renderProfileSummary(therapistProfile);
+      }
+    } finally {
+      toggle.disabled = false;
+    }
+  });
+}
+
+function bindDuplicateCleanup() {
+  const button = document.getElementById("removeTherapistDuplicates");
+  if (!button) return;
+
+  button.addEventListener("click", removeDuplicateBookings);
+}
+
+function bindPayoutAccount() {
+  const button = document.getElementById("savePayoutAccountBtn");
+  if (!button) return;
+
+  button.addEventListener("click", savePayoutAccount);
+}
+
+async function loadPayoutBanks() {
+  const bankSelect = document.getElementById("payoutBank");
+  if (!bankSelect) return;
+
+  try {
+    const res = await fetch("/paystack_banks");
+    const data = await res.json();
+    payoutBanks = data.banks || [];
+    bankSelect.innerHTML = '<option value="">Select bank</option>' + payoutBanks
+      .map(bank => `<option value="${escapeAttribute(bank.code)}">${escapeHTML(bank.name)}</option>`)
+      .join("");
+  } catch (error) {
+    console.error("Bank list failed:", error);
+    payoutBanks = [];
+    bankSelect.innerHTML = '<option value="">Unable to load banks</option>';
+  }
+}
+
+function hydratePayoutForm(profile) {
+  const bankSelect = document.getElementById("payoutBank");
+  const accountInput = document.getElementById("payoutAccountNumber");
+  const accountName = document.getElementById("payoutAccountName");
+  const message = document.getElementById("payoutMessage");
+
+  if (!bankSelect || !profile) return;
+
+  bankSelect.value = profile.payout_bank_code || "";
+  if (accountInput) {
+    accountInput.value = "";
+    accountInput.placeholder = profile.payout_account_number_masked || "10 digit account number";
+  }
+  if (accountName) {
+    accountName.value = profile.payout_account_name || "";
+  }
+  if (message) {
+    message.textContent = profile.payout_recipient_ready
+      ? `Payout account ready: ${profile.payout_bank_name || "Bank"} ${profile.payout_account_number_masked || ""}`
+      : "Add and save your payout account before live payouts.";
+  }
+}
+
+async function savePayoutAccount() {
+  const button = document.getElementById("savePayoutAccountBtn");
+  const bankSelect = document.getElementById("payoutBank");
+  const accountInput = document.getElementById("payoutAccountNumber");
+  const accountName = document.getElementById("payoutAccountName");
+  const message = document.getElementById("payoutMessage");
+  const selectedBank = payoutBanks.find(bank => bank.code === bankSelect.value);
+
+  if (!bankSelect.value || !accountInput.value.trim()) {
+    message.textContent = "Choose a bank and enter the account number.";
+    return;
+  }
+
+  button.disabled = true;
+  message.textContent = "Saving payout account...";
+
+  try {
+    const res = await fetch("/save_payout_account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: localStorage.getItem("email"),
+        bank_code: bankSelect.value,
+        bank_name: selectedBank ? selectedBank.name : bankSelect.options[bankSelect.selectedIndex]?.textContent,
+        account_number: accountInput.value
+      })
+    });
+    const data = await res.json();
+
+    message.textContent = data.message || "Payout account saved.";
+    message.classList.toggle("success", res.ok);
+    message.classList.toggle("error", !res.ok);
+
+    if (res.ok) {
+      accountInput.value = "";
+      accountInput.placeholder = data.account_number_masked || "10 digit account number";
+      accountName.value = data.account_name || "";
+      await loadTherapistProfile();
+    }
+  } catch (error) {
+    message.textContent = "Payout account could not be saved. Please try again.";
+    message.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function bindSpecialtyPicker() {
@@ -343,6 +512,14 @@ function hydrateForm(profile) {
     input.checked = specialties.includes(input.value);
   });
   updateSpecialtyPicker();
+  
+  // Set online status toggle
+  const onlineToggle = document.getElementById("onlineStatusToggle");
+  if (onlineToggle && profile.manual_availability !== undefined) {
+    onlineToggle.checked = profile.manual_availability == 1 || profile.online_status === "online";
+  }
+
+  hydratePayoutForm(profile);
 }
 
 function setValue(id, value) {
@@ -413,6 +590,12 @@ function renderProfileSummary(profile) {
   const formats = profile.session_formats && profile.session_formats.length
     ? profile.session_formats.join(", ")
     : "Not set";
+  const availabilityMode = profile.manual_availability == 1 || profile.online_status === "online"
+    ? "Available now: accepts bookings anytime"
+    : formatAvailability(profile.availability);
+  const payoutStatus = profile.payout_recipient_ready
+    ? `${profile.payout_bank_name || "Bank"} ${profile.payout_account_number_masked || ""}`
+    : "Payout account not ready";
 
   container.innerHTML = `
     <div class="profile-header">
@@ -429,8 +612,9 @@ function renderProfileSummary(profile) {
       <div><span>Languages</span><strong>${escapeHTML([profile.primary_language, profile.secondary_language].filter(Boolean).join(", ") || "Not set")}</strong></div>
       <div><span>Experience</span><strong>${escapeHTML(profile.experience_years || "0")} years</strong></div>
       <div><span>Rate</span><strong>${escapeHTML(formatRate(profile.hourly_rate))}</strong></div>
-      <div><span>Availability</span><strong>${escapeHTML(formatAvailability(profile.availability))}</strong></div>
+      <div><span>Availability</span><strong>${escapeHTML(availabilityMode)}</strong></div>
       <div><span>Session formats</span><strong>${escapeHTML(formats)}</strong></div>
+      <div><span>Payout account</span><strong>${escapeHTML(payoutStatus)}</strong></div>
     </div>
 
     <div class="profile-copy">
@@ -491,6 +675,119 @@ async function loadBookings() {
   }
 
   bookings.innerHTML = data.bookings.map(renderBookingCard).join("");
+  
+  // Bind booking action buttons
+  bookings.querySelectorAll(".accept-booking").forEach(btn => {
+    btn.addEventListener("click", () => handleBookingAction(btn.dataset.bookingId, "Accepted"));
+  });
+  bookings.querySelectorAll(".reject-booking").forEach(btn => {
+    btn.addEventListener("click", () => handleBookingAction(btn.dataset.bookingId, "Rejected"));
+  });
+  bookings.querySelectorAll(".cancel-booking").forEach(btn => {
+    btn.addEventListener("click", () => handleBookingAction(btn.dataset.bookingId, "Cancelled"));
+  });
+  bookings.querySelectorAll(".reschedule-booking").forEach(btn => {
+    btn.addEventListener("click", () => handleReschedule(btn));
+  });
+  bookings.querySelectorAll(".save-meet-link").forEach(btn => {
+    btn.addEventListener("click", () => saveMeetLink(btn));
+  });
+  bookings.querySelectorAll(".reduce-booking-group").forEach(btn => {
+    btn.addEventListener("click", () => reduceBookingGroup(btn));
+  });
+}
+
+async function handleBookingAction(bookingId, status) {
+  if (!bookingId) {
+    alert("Booking ID missing. Please refresh the page.");
+    return;
+  }
+
+  if (!confirm(`Are you sure you want to ${status.toLowerCase()} this booking?`)) {
+    return;
+  }
+  
+  const res = await fetch("/update_booking_status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      booking_id: bookingId,
+      status: status,
+      therapist_email: localStorage.getItem("email")
+    })
+  });
+  
+  const data = await res.json();
+  alert(data.message);
+  
+  if (res.ok) {
+    const row = document.querySelector(`[data-booking-card="${bookingId}"]`);
+    if (row && (status === "Rejected" || status === "Cancelled")) {
+      row.remove();
+    }
+    await loadBookings();
+    await loadNotifications();
+  }
+}
+
+async function handleReschedule(button) {
+  const bookingId = button.dataset.bookingId;
+  const row = button.closest(".booking-row");
+  const dateInput = row.querySelector("[data-reschedule-date]");
+  const timeInput = row.querySelector("[data-reschedule-time]");
+
+  if (!dateInput.value || !timeInput.value) {
+    alert("Choose the new appointment date and time.");
+    return;
+  }
+
+  if (!confirm("Reschedule this booking to the selected time?")) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const res = await fetch("/reschedule_booking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        booking_id: bookingId,
+        therapist_email: localStorage.getItem("email"),
+        date: `${dateInput.value}T${timeInput.value}`
+      })
+    });
+
+    const data = await res.json();
+    alert(data.message);
+
+    if (res.ok) {
+      await loadBookings();
+      await loadNotifications();
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function removeDuplicateBookings() {
+  if (!confirm("Cancel overlapping duplicate bookings and hide them from this list?")) {
+    return;
+  }
+
+  const res = await fetch("/remove_duplicate_bookings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: localStorage.getItem("email"), role: localStorage.getItem("userRole") })
+  });
+
+  const data = await res.json();
+  alert(data.message);
+
+  if (res.ok) {
+    await loadBookings();
+    await loadNotifications();
+  }
 }
 
 function renderBookingCard(booking) {
@@ -503,13 +800,32 @@ function renderBookingCard(booking) {
     ? profile.specialties.join(", ")
     : "Not provided yet";
 
+  const normalizedStatus = status || "Pending";
+  const isPending = normalizedStatus === "Pending";
+  const isAccepted = normalizedStatus === "Accepted";
+  const canCancel = normalizedStatus === "Pending" || normalizedStatus === "Accepted";
+  const canReschedule = canCancel;
+  const dateValue = getDateInputValue(date);
+  const timeValue = getTimeInputValue(date);
+  const hasPaid = Boolean(booking.paid);
+  const canChat = Boolean(booking.can_chat);
+  const meetLink = booking.meet_link || "";
+  const meetHref = meetLink || "https://meet.google.com/new";
+  const groupActiveCount = Number(booking.group_active_count || booking.total_sessions || 1);
+  const sequenceNumber = Number(booking.sequence_number || 1);
+  const canReduceGroup = groupActiveCount > 1 && (isPending || isAccepted);
+  const payoutLabel = hasPaid
+    ? formatPayoutStatus(booking.payout_status)
+    : "Waiting for completed client payment";
+
   return `
-    <article class="booking-row detailed-booking">
+    <article class="booking-row detailed-booking" data-booking-card="${escapeAttribute(booking.id)}">
       <div class="booking-main">
         <div>
           <strong>${escapeHTML(profile.name || userEmail)}</strong>
           <span>${escapeHTML(userEmail)}</span>
           <span>${escapeHTML(formatDateTime(date))}</span>
+          ${groupActiveCount > 1 ? `<span>${escapeHTML(`Session ${sequenceNumber} of ${groupActiveCount}`)}</span>` : ""}
         </div>
         <span class="booking-status">${escapeHTML(status)}</span>
       </div>
@@ -520,15 +836,176 @@ function renderBookingCard(booking) {
           <div><span>Location</span><strong>${escapeHTML(profile.location || "Not set")}</strong></div>
           <div><span>Languages</span><strong>${escapeHTML(languages)}</strong></div>
           <div><span>Client needs</span><strong>${escapeHTML(specialties)}</strong></div>
+          <div><span>Payment</span><strong>${hasPaid ? "Payment completed" : "Client payment not completed"}</strong></div>
+          <div><span>Payout</span><strong>${escapeHTML(payoutLabel)}</strong></div>
         </div>
       </div>
+      ${isAccepted ? `
+      <div class="meet-controls">
+        <label>
+          Google Meet link
+          <input type="url" data-meet-link="${escapeAttribute(booking.id)}" placeholder="https://meet.google.com/..." value="${escapeAttribute(meetLink)}">
+        </label>
+        <button type="button" class="save-meet-link" data-booking-id="${booking.id}">Save Meet</button>
+        <a class="button-link ghost-link ${canChat ? "" : "disabled"}" href="${escapeAttribute(meetHref)}" target="_blank" rel="noopener">Google Meet</a>
+        <a class="button-link ${canChat ? "" : "disabled"}" href="chat.html">Open Chat</a>
+      </div>
+      ${canChat ? "" : `
+      <p class="booking-feedback error">Chat and Google Meet unlock after client payment is completed.</p>
+      `}
+      ` : ''}
+      ${canReduceGroup ? `
+      <div class="reduce-session-controls">
+        <label>
+          Keep sessions
+          <input type="number" min="1" max="${escapeAttribute(groupActiveCount)}" value="${escapeAttribute(groupActiveCount)}" data-reduce-count="${escapeAttribute(booking.booking_group_id)}">
+        </label>
+        <button type="button" class="reduce-booking-group" data-booking-group-id="${escapeAttribute(booking.booking_group_id)}">Reduce</button>
+      </div>
+      ` : ''}
+      ${canReschedule ? `
+      <div class="reschedule-controls">
+        <label>
+          New date
+          <input type="date" data-reschedule-date min="${escapeAttribute(getTodayDate())}" value="${escapeAttribute(dateValue)}">
+        </label>
+        <label>
+          New time
+          <input type="time" data-reschedule-time step="1800" value="${escapeAttribute(timeValue)}">
+        </label>
+        <button type="button" class="reschedule-booking" data-booking-id="${booking.id}">Reschedule</button>
+      </div>
+      ` : ''}
+      ${isPending || canCancel ? `
+      <div class="booking-actions">
+        ${isPending ? `
+        <button type="button" class="accept-booking" data-booking-id="${booking.id}">Accept</button>
+        <button type="button" class="reject-booking" data-booking-id="${booking.id}">Reject</button>
+        ` : ''}
+        ${canCancel ? `
+        <button type="button" class="cancel-booking" data-booking-id="${booking.id}">Cancel</button>
+        ` : ''}
+      </div>
+      ` : ''}
     </article>
   `;
+}
+
+async function saveMeetLink(button) {
+  const bookingId = button.dataset.bookingId;
+  const input = document.querySelector(`[data-meet-link="${bookingId}"]`);
+  const meetLink = input.value.trim();
+
+  if (meetLink && !meetLink.startsWith("https://meet.google.com/")) {
+    alert("Please paste a Google Meet link that starts with https://meet.google.com/");
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const res = await fetch("/set_meet_link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        booking_id: bookingId,
+        therapist_email: localStorage.getItem("email"),
+        meet_link: meetLink
+      })
+    });
+    const data = await res.json();
+    alert(data.message);
+
+    if (res.ok) {
+      await loadBookings();
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function reduceBookingGroup(button) {
+  const bookingGroupId = button.dataset.bookingGroupId;
+  const input = button.closest(".booking-row")?.querySelector("[data-reduce-count]");
+  const keepCount = Number(input?.value || 0);
+
+  if (!bookingGroupId || keepCount < 1) {
+    alert("Enter how many sessions to keep.");
+    return;
+  }
+
+  if (!confirm(`Reduce this request to ${keepCount} session(s)?`)) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const res = await fetch("/reduce_booking_group", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        therapist_email: localStorage.getItem("email"),
+        booking_group_id: bookingGroupId,
+        keep_count: keepCount
+      })
+    });
+    const data = await res.json();
+    alert(data.message);
+
+    if (res.ok) {
+      await loadBookings();
+      await loadNotifications();
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function formatPayoutStatus(status) {
+  const normalized = String(status || "").toLowerCase();
+
+  if (!normalized) return "Payout pending";
+  if (["success", "successful"].includes(normalized)) return "Payout sent";
+  if (["pending", "queued", "otp", "processing"].includes(normalized)) return "Payout processing";
+  if (normalized === "missing_recipient") return "Add payout account";
+  if (normalized === "pending_configuration") return "Paystack setup pending";
+  if (normalized === "failed") return "Payout needs retry";
+
+  return normalized.replace(/_/g, " ");
 }
 
 function formatDateTime(value) {
   if (!value) return "Date not set";
   return new Date(value).toLocaleString();
+}
+
+function getTodayDate() {
+  const today = new Date();
+  return today.toISOString().split("T")[0];
+}
+
+function getDateInputValue(value) {
+  const parsed = parseDateValue(value);
+  if (!parsed) return "";
+
+  const offsetDate = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 10);
+}
+
+function getTimeInputValue(value) {
+  const parsed = parseDateValue(value);
+  if (!parsed) return "";
+
+  const offsetDate = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(11, 16);
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function parseAvailability(value) {

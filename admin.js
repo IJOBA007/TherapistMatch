@@ -1,12 +1,14 @@
 const API_BASE = "";
+const ADMIN_ENTRY_PATH = "/tm-gate-7f3a9c";
 
 document.addEventListener("DOMContentLoaded", () => {
   if (localStorage.getItem("userRole") !== "admin" || !localStorage.getItem("sessionToken")) {
-    window.location.href = "index.html";
+    window.location.href = ADMIN_ENTRY_PATH;
     return;
   }
 
   document.getElementById("therapists").addEventListener("click", handleReviewAction);
+  document.getElementById("people").addEventListener("click", handlePersonAction);
   document.getElementById("payments").addEventListener("click", handlePaymentAction);
   document.getElementById("supportInbox").addEventListener("click", handleSupportAction);
   document.getElementById("paymentSearchBtn").addEventListener("click", loadPayments);
@@ -18,6 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("includeArchivedPayments").addEventListener("change", loadPayments);
   loadTherapists();
+  loadPeople();
   loadPayments();
   loadSupportInbox();
 });
@@ -32,7 +35,7 @@ function authHeaders(extraHeaders = {}) {
 function handleUnauthorized(res) {
   if (res.status !== 401) return false;
   localStorage.clear();
-  window.location.href = "index.html";
+  window.location.href = ADMIN_ENTRY_PATH;
   return true;
 }
 
@@ -119,6 +122,93 @@ function renderTherapistCard(therapist) {
       </div>
     </article>
   `;
+}
+
+async function loadPeople() {
+  const container = document.getElementById("people");
+  const peopleCount = document.getElementById("peopleCount");
+
+  try {
+    const res = await fetch(`${API_BASE}/get_people`, {
+      headers: authHeaders()
+    });
+    if (handleUnauthorized(res)) return;
+
+    const data = await res.json();
+    const people = data.people || [];
+    const users = people.filter(person => person.role === "user");
+    const therapists = people.filter(person => person.role === "therapist");
+
+    peopleCount.textContent = `${users.length} users / ${therapists.length} therapists`;
+
+    if (!people.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <strong>No people yet</strong>
+          <p>Client and therapist accounts will appear here after signup.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = people.map(renderPersonCard).join("");
+  } catch (error) {
+    console.error(error);
+    container.innerHTML = `
+      <div class="notice notice-error">
+        <strong>Unable to load people</strong>
+        <p>Please check that the server is running.</p>
+      </div>
+    `;
+  }
+}
+
+function renderPersonCard(person) {
+  const status = person.role === "therapist"
+    ? person.verification_status || (person.verified ? "verified" : "draft")
+    : "client";
+
+  return `
+    <article class="admin-application compact-card person-card">
+      <div class="admin-application-header">
+        <div>
+          <p class="eyebrow">${escapeHTML(person.role)}</p>
+          <h3>${escapeHTML(person.email)}</h3>
+        </div>
+        <span class="person-status">${escapeHTML(status)}</span>
+      </div>
+      <div class="admin-actions compact-actions">
+        <button type="button" class="reject-btn" data-person-action="kick" data-email="${escapeAttribute(person.email)}">Kick Out</button>
+      </div>
+    </article>
+  `;
+}
+
+async function handlePersonAction(event) {
+  const button = event.target.closest("[data-person-action]");
+  if (!button) return;
+
+  if (button.dataset.personAction !== "kick") return;
+
+  const email = button.dataset.email;
+  if (!confirm(`Kick ${email} out of TherapistMatch? This will cancel their bookings and remove their account.`)) {
+    return;
+  }
+
+  const res = await fetch(`${API_BASE}/admin_delete_account`, {
+    method: "POST",
+    headers: authHeaders({"Content-Type": "application/json"}),
+    body: JSON.stringify({ email })
+  });
+  if (handleUnauthorized(res)) return;
+
+  const data = await res.json();
+  alert(data.message);
+
+  if (res.ok) {
+    loadPeople();
+    loadTherapists();
+  }
 }
 
 function handleReviewAction(event) {
@@ -385,7 +475,7 @@ async function handleSupportAction(event) {
 
 function logoutAdmin() {
   localStorage.clear();
-  window.location.href = "index.html";
+  window.location.href = ADMIN_ENTRY_PATH;
 }
 
 function escapeHTML(value) {

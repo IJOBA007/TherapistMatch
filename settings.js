@@ -1,5 +1,6 @@
 const SETTINGS_API_BASE = "";
-const SESSION_DEPOSIT_KOBO = 500000;
+const DEFAULT_TOP_UP_AMOUNT_KOBO = 1100000;
+let paystackPublicKey = "pk_test_1fab358fb60e7c6d5fd6898d94c29be6e314cde8";
 
 document.addEventListener("DOMContentLoaded", () => {
   const email = localStorage.getItem("email");
@@ -16,8 +17,22 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("paystackButton").addEventListener("click", payWithPaystackFromSettings);
   document.getElementById("recordPaymentButton").addEventListener("click", recordTestPayment);
 
+  loadPaymentConfig();
   loadProfile();
+  loadWalletSummary();
 });
+
+async function loadPaymentConfig() {
+  try {
+    const res = await fetch(`${SETTINGS_API_BASE}/payment_config`);
+    const data = await res.json();
+    if (data.paystack_public_key) {
+      paystackPublicKey = data.paystack_public_key;
+    }
+  } catch (error) {
+    console.error("Payment config load failed:", error);
+  }
+}
 
 async function loadProfile() {
   const email = localStorage.getItem("email");
@@ -113,6 +128,7 @@ function calculateAge(dob) {
 function payWithPaystackFromSettings() {
   const email = localStorage.getItem("email");
   const paymentMessage = document.getElementById("paymentMessage");
+  const topUpAmount = getTopUpAmountKobo();
 
   if (!window.PaystackPop) {
     paymentMessage.textContent = "Paystack is not loaded. Please check your internet connection.";
@@ -120,25 +136,26 @@ function payWithPaystackFromSettings() {
   }
 
   const handler = PaystackPop.setup({
-    key: "pk_test_1fab358fb60e7c6d5fd6898d94c29be6e314cde8",
+    key: paystackPublicKey,
     email,
-    amount: SESSION_DEPOSIT_KOBO,
+    amount: topUpAmount,
     currency: "NGN",
     callback: async function(response) {
-      paymentMessage.textContent = "Payment received. Verifying...";
+      paymentMessage.textContent = "Top-up received. Verifying...";
 
       const res = await fetch(`${SETTINGS_API_BASE}/verify_payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
-          amount: SESSION_DEPOSIT_KOBO,
+          amount: topUpAmount,
           currency: "NGN",
           reference: response.reference
         })
       });
       const data = await res.json();
       paymentMessage.textContent = data.message;
+      await loadWalletSummary();
     },
     onClose: function() {
       paymentMessage.textContent = "Payment window closed.";
@@ -150,16 +167,68 @@ function payWithPaystackFromSettings() {
 
 async function recordTestPayment() {
   const paymentMessage = document.getElementById("paymentMessage");
+  const topUpAmount = getTopUpAmountKobo();
   const res = await fetch(`${SETTINGS_API_BASE}/pay`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email: localStorage.getItem("email"),
-      amount: SESSION_DEPOSIT_KOBO,
+      amount: topUpAmount,
       currency: "NGN",
       provider: "paystack-test"
     })
   });
   const data = await res.json();
   paymentMessage.textContent = data.message + " (" + data.reference + ")";
+  await loadWalletSummary();
+}
+
+async function loadWalletSummary() {
+  const paymentMessage = document.getElementById("paymentMessage");
+
+  try {
+    const res = await fetch(`${SETTINGS_API_BASE}/wallet_summary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: localStorage.getItem("email") })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || "Unable to load account balance.");
+    }
+
+    document.getElementById("accountBalance").textContent = formatNaira(data.balance);
+    document.getElementById("pendingBalance").textContent = formatNaira(data.pending_balance);
+    document.getElementById("sessionPrice").textContent = formatNaira(data.session_price);
+    const topUpInput = document.getElementById("topUpAmountInput");
+    if (topUpInput && (!topUpInput.value || Number(topUpInput.value) <= 0)) {
+      topUpInput.value = Math.round((data.shortage || DEFAULT_TOP_UP_AMOUNT_KOBO) / 100);
+    }
+
+    if (data.shortage > 0) {
+      paymentMessage.textContent = `Add ${formatNaira(data.shortage)} more to pay for a session.`;
+    } else if (!paymentMessage.textContent) {
+      paymentMessage.textContent = "Your account has enough balance for a session.";
+    }
+  } catch (error) {
+    console.error("Wallet summary failed:", error);
+  }
+}
+
+function getTopUpAmountKobo() {
+  const input = document.getElementById("topUpAmountInput");
+  const naira = Number(input?.value || 0);
+  const amount = Math.round(naira * 100);
+
+  return amount > 0 ? amount : DEFAULT_TOP_UP_AMOUNT_KOBO;
+}
+
+function formatNaira(amountKobo) {
+  const amount = Number(amountKobo || 0) / 100;
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 0
+  }).format(amount);
 }

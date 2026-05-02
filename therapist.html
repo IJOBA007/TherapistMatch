@@ -19,10 +19,19 @@
         <strong id="statusLabel">Loading</strong>
       </div>
 
+      <div class="online-toggle">
+        <label class="toggle-label">
+          <input type="checkbox" id="onlineStatusToggle">
+          <span class="toggle-text">Available Now</span>
+        </label>
+        <p class="toggle-hint">When on, you can accept bookings anytime</p>
+      </div>
+
       <nav class="therapist-nav" aria-label="Therapist sections">
         <button type="button" class="nav-button active" data-view="applicationView">Application</button>
-        <button type="button" class="nav-button" data-view="profileView">Profile</button>
-        <button type="button" class="nav-button" data-view="bookingsView">Bookings</button>
+        <button type="button" class="nav-button" data-view="profileView">Profile <span class="nav-badge" data-badge="profile"></span></button>
+        <button type="button" class="nav-button" data-view="bookingsView">Bookings <span class="nav-badge" data-badge="bookings"></span></button>
+        <a class="nav-button nav-link-button" href="chat.html">Chat <span class="nav-badge" data-badge="chat"></span></a>
       </nav>
 
       <button type="button" class="secondary-button" onclick="logout()">Logout</button>
@@ -222,6 +231,37 @@
             </div>
           </div>
 
+          <div class="form-section">
+            <div class="section-heading">
+              <span>4</span>
+              <div>
+                <h3>Payout Account</h3>
+                <p>Add the bank account Paystack should use for session payouts.</p>
+              </div>
+            </div>
+
+            <div class="form-grid payout-form-grid">
+              <label>
+                Bank
+                <select id="payoutBank">
+                  <option value="">Loading banks...</option>
+                </select>
+              </label>
+              <label>
+                Account number
+                <input type="text" id="payoutAccountNumber" inputmode="numeric" maxlength="10" placeholder="10 digit account number">
+              </label>
+              <label class="full-width">
+                Account name
+                <input type="text" id="payoutAccountName" placeholder="Verified after saving" readonly>
+              </label>
+              <div class="settings-actions full-width">
+                <p id="payoutMessage"></p>
+                <button type="button" id="savePayoutAccountBtn" class="ghost-button">Save Payout Account</button>
+              </div>
+            </div>
+          </div>
+
           <div class="form-actions">
             <p id="formMessage"></p>
             <button type="submit" id="submitCredentialsBtn">Submit for Verification</button>
@@ -235,12 +275,13 @@
 
       <section id="bookingsView" class="therapist-view" hidden>
         <div class="section-heading compact">
-          <span>4</span>
+          <span>5</span>
           <div>
             <h3>Bookings</h3>
             <p>Client session requests appear here after verification.</p>
           </div>
         </div>
+        <button type="button" id="removeTherapistDuplicates" class="secondary-button duplicate-action">Cancel Duplicate Bookings</button>
         <div id="bookings" class="booking-list"></div>
       </section>
     </main>

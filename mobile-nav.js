@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!sidebar) return;
 
   document.body.classList.add("has-mobile-sidebar");
+  loadSidebarBadges();
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -68,3 +69,40 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }, { passive: true });
 });
+
+async function loadSidebarBadges() {
+  const email = localStorage.getItem("email");
+  const role = localStorage.getItem("userRole");
+
+  if (!email || !role) return;
+
+  try {
+    const res = await fetch("/get_notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role })
+    });
+
+    if (!res.ok) return;
+
+    const data = await res.json();
+    const bookingTarget = role === "therapist" ? "bookings" : "dashboard";
+
+    setSidebarBadge(bookingTarget, data.bookings || 0);
+    setSidebarBadge("support", data.support || 0);
+  } catch (error) {
+    console.error("Sidebar badge load failed:", error);
+  }
+}
+
+function setSidebarBadge(name, count) {
+  document.querySelectorAll(`[data-badge='${name}']`).forEach(badge => {
+    if (count > 0) {
+      badge.textContent = count;
+      badge.style.display = "inline-flex";
+    } else {
+      badge.textContent = "";
+      badge.style.display = "none";
+    }
+  });
+}

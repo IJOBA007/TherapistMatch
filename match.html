@@ -10,9 +10,10 @@
   <div class="dashboard">
     <aside class="sidebar">
       <h2>TherapistMatch</h2>
-      <a href="dashboard.html">Dashboard</a>
-      <a href="match.html" class="active">Find Therapist</a>
-      <a href="settings.html">Settings</a>
+      <a href="dashboard.html">Dashboard <span class="nav-badge" data-badge="dashboard"></span></a>
+      <a href="match.html" class="active">Find Therapist <span class="nav-badge" data-badge="find"></span></a>
+      <a href="chat.html">Chat <span class="nav-badge" data-badge="chat"></span></a>
+      <a href="settings.html">Settings <span class="nav-badge" data-badge="settings"></span></a>
     </aside>
 
     <main class="main-content">
@@ -50,6 +51,16 @@
                 <option value="availability">Most available</option>
                 <option value="rating">Highest rated</option>
               </select>
+            </label>
+
+            <label>
+              Preferred date
+              <input type="date" id="preferredDate">
+            </label>
+
+            <label>
+              Preferred time
+              <input type="time" id="preferredTime" step="1800">
             </label>
 
             <button type="button" onclick="findMatch()">Find Match</button>

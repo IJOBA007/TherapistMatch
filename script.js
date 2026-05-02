@@ -1,4 +1,5 @@
 let socket = null;
+const ADMIN_CONSOLE_PATH = "/tm-console-7f3a9c";
 
 function getEmailValue() {
   return document.getElementById("email").value.trim().toLowerCase();
@@ -69,7 +70,7 @@ async function signup() {
       if (role === "therapist") {
         window.location.href = "therapist.html";
       } else if (role === "admin") {
-        window.location.href = "admin.html";
+        window.location.href = ADMIN_CONSOLE_PATH;
       } else {
         window.location.href = "dashboard.html";
       }
@@ -85,6 +86,7 @@ async function signup() {
 async function login() {
   const email = getEmailValue();
   const password = document.getElementById("password").value;
+  const role = document.getElementById("role").value;
 
   if (!email || !password) {
     showAuthMessage("Please enter email and password");
@@ -102,7 +104,7 @@ async function login() {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, role })
     });
 
     const data = await res.json();
@@ -113,10 +115,14 @@ async function login() {
       localStorage.setItem("email", email);
       localStorage.setItem("sessionToken", data.token || "");
 
+      if (data.role === "admin") {
+        localStorage.clear();
+        showAuthMessage("Please use the admin access page for this account.");
+        return;
+      }
+
       if (data.role === "therapist") {
         window.location.href = "therapist.html";
-      } else if (data.role === "admin") {
-        window.location.href = "admin.html";
       } else {
         window.location.href = "dashboard.html";
       }
@@ -131,6 +137,7 @@ async function login() {
 
 async function bookSession(therapistEmail, date, clientNeeds = [], options = {}) {
   const email = localStorage.getItem("email");
+  const sessionCount = Math.max(1, Number(options.sessionCount || options.session_count || 1) || 1);
 
   if (!email) {
     alert("Please log in before booking a session.");
@@ -153,7 +160,8 @@ async function bookSession(therapistEmail, date, clientNeeds = [], options = {})
       user_email: email,
       therapist_email: therapistEmail,
       date,
-      client_needs: clientNeeds
+      client_needs: clientNeeds,
+      session_count: sessionCount
     })
   });
 

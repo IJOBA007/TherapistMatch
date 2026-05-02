@@ -1,11 +1,17 @@
 const MIN_SPECIALTIES = 1;
 const MAX_SPECIALTIES = 4;
+const MAX_CONSECUTIVE_SESSIONS = 8;
 
 let currentTherapists = [];
 
 document.addEventListener("DOMContentLoaded", () => {
   bindSpecialtyPicker();
   loadProfileLanguage();
+
+  const preferredDate = document.getElementById("preferredDate");
+  if (preferredDate) {
+    preferredDate.min = getTodayDate();
+  }
 
   const sortPreference = document.getElementById("sortPreference");
   if (sortPreference) {
@@ -17,6 +23,26 @@ document.addEventListener("click", event => {
   const button = event.target.closest("[data-book-email]");
   if (button) {
     handleBooking(button);
+  }
+});
+
+document.addEventListener("change", event => {
+  const dateInput = event.target.closest("[data-book-date]");
+  if (dateInput) {
+    updateTimeSlots(dateInput);
+    return;
+  }
+
+  const timeSelect = event.target.closest("[data-book-time]");
+  if (timeSelect) {
+    updateSessionCountOptions(timeSelect.closest(".match-card"));
+    updateBookingButtonState(timeSelect.closest(".match-card"));
+    return;
+  }
+
+  const sessionCount = event.target.closest("[data-session-count]");
+  if (sessionCount) {
+    updateBookingButtonState(sessionCount.closest(".match-card"));
   }
 });
 
@@ -55,9 +81,29 @@ function updateSpecialtyPicker() {
   }
 }
 
+function getPreferredDateTime() {
+  const date = document.getElementById("preferredDate")?.value || "";
+  const time = document.getElementById("preferredTime")?.value || "";
+
+  if (!date && !time) {
+    return { date: "", time: "", value: "" };
+  }
+
+  if (!date || !time) {
+    return { error: "Choose both preferred date and preferred time, or leave both blank." };
+  }
+
+  return {
+    date,
+    time,
+    value: `${date}T${time}`
+  };
+}
+
 async function findMatch() {
   const primaryLanguage = document.getElementById("language").value;
   const specializations = getSelectedSpecialties();
+  const preferred = getPreferredDateTime();
   const results = document.getElementById("results");
   const message = document.getElementById("matchMessage");
 
@@ -79,6 +125,12 @@ async function findMatch() {
     return;
   }
 
+  if (preferred.error) {
+    message.textContent = preferred.error;
+    results.innerHTML = "";
+    return;
+  }
+
   message.textContent = "";
   results.innerHTML = "<p>Searching...</p>";
 
@@ -89,7 +141,8 @@ async function findMatch() {
     },
     body: JSON.stringify({
       primary_language: primaryLanguage,
-      specializations
+      specializations,
+      preferred_datetime: preferred.value
     })
   });
 
@@ -124,29 +177,245 @@ async function findMatch() {
 function renderTherapists(therapists) {
   const results = document.getElementById("results");
   const sortedTherapists = sortTherapists([...(therapists || [])]);
+  const preferred = getPreferredDateTime();
 
-  results.innerHTML = sortedTherapists.map(therapist => `
+  results.innerHTML = sortedTherapists.map(therapist => {
+    const hasManualAvailability = therapist.manual_availability == 1;
+    const isOnline = therapist.online_status === "online";
+    const statusBadge = hasManualAvailability || isOnline 
+      ? '<span class="online-badge">● Online</span>' 
+      : '';
+    const cleanStatusBadge = hasManualAvailability || isOnline
+      ? '<span class="online-badge">Available now</span>'
+      : '';
+    const availabilityLabel = hasManualAvailability || isOnline
+      ? "Accepting requests at any time while available now"
+      : formatAvailability(therapist.availability);
+    
+    return `
     <article class="match-card">
       ${therapist.profile_photo ? `<img class="profile-photo" src="${therapist.profile_photo}" alt="">` : ""}
       <div>
-        <h3>${escapeHTML(therapist.name || "Therapist")}</h3>
+        <h3>${escapeHTML(therapist.name || "Therapist")} ${cleanStatusBadge}</h3>
         <p>${escapeHTML(therapist.specialization || "General Practice")}</p>
         <p>${escapeHTML(therapist.location || "Location not set")} - ${escapeHTML(formatLanguages(therapist))}</p>
         <p>${escapeHTML(formatRate(therapist.hourly_rate))}</p>
         <p>${escapeHTML(formatRating(therapist))}</p>
-        <p><strong>Available:</strong> ${escapeHTML(formatAvailability(therapist.availability))}</p>
+        <p><strong>Available:</strong> ${escapeHTML(availabilityLabel)}</p>
         <p>${escapeHTML(therapist.bio || "No bio added yet.")}</p>
       </div>
       <div class="booking-controls">
         <label>
-          Session time
-          <input type="datetime-local" data-book-time min="${escapeAttribute(getBookingMinimum())}">
+          Session date
+          <input type="date" data-book-date min="${escapeAttribute(getTodayDate())}" value="${escapeAttribute(preferred.date || "")}" data-availability="${escapeAttribute(therapist.availability || "")}" data-manual-availability="${hasManualAvailability || isOnline ? "1" : "0"}" data-preferred-time="${escapeAttribute(preferred.value || "")}">
         </label>
-        <button type="button" data-book-email="${escapeAttribute(therapist.email)}">Book</button>
+        <label class="time-slot-container" style="display: none;">
+          Available times
+          <select data-book-time></select>
+        </label>
+        <label class="session-count-container" style="display: none;">
+          Sessions in a row
+          <select data-session-count></select>
+        </label>
+        <button type="button" data-book-email="${escapeAttribute(therapist.email)}" disabled>Book</button>
         <p class="booking-feedback" data-book-message></p>
       </div>
     </article>
-  `).join("");
+  `;
+  }).join("");
+
+  results.querySelectorAll("[data-book-date]").forEach(input => {
+    if (input.value) {
+      updateTimeSlots(input);
+    }
+  });
+}
+
+function getTodayDate() {
+  const today = new Date();
+  return today.toISOString().split('T')[0];
+}
+
+function updateTimeSlots(dateInput) {
+  const card = dateInput.closest(".match-card");
+  const timeContainer = card.querySelector(".time-slot-container");
+  const timeSelect = card.querySelector("[data-book-time]");
+  const selectedDate = dateInput.value;
+  const availabilityJson = dateInput.dataset.availability || "";
+  const hasManualAvailability = dateInput.dataset.manualAvailability === "1";
+  const preferredTime = dateInput.dataset.preferredTime || "";
+
+  if (!selectedDate) {
+    timeContainer.style.display = "none";
+    timeSelect.innerHTML = "";
+    updateSessionCountOptions(card);
+    updateBookingButtonState(card);
+    return;
+  }
+
+  if (hasManualAvailability) {
+    const allSlots = generateTimeSlots("00:00", "24:00", 30);
+    fillTimeSelect(timeSelect, selectedDate, allSlots, preferredTime);
+    timeContainer.style.display = "block";
+    updateSessionCountOptions(card);
+    updateBookingButtonState(card);
+    return;
+  }
+
+  const availability = parseAvailability(availabilityJson);
+  if (!availability.slots.length) {
+    timeSelect.innerHTML = '<option value="">Therapist availability not set</option>';
+    timeContainer.style.display = "block";
+    updateSessionCountOptions(card);
+    updateBookingButtonState(card);
+    return;
+  }
+
+  const date = new Date(`${selectedDate}T00:00`);
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const selectedDay = days[date.getDay()];
+  const daySlots = availability.slots.filter(slot => slot.day === selectedDay);
+
+  if (!daySlots.length) {
+    timeSelect.innerHTML = `<option value="">${selectedDay} - Not available</option>`;
+    timeContainer.style.display = "block";
+    updateSessionCountOptions(card);
+    updateBookingButtonState(card);
+    return;
+  }
+
+  let allSlots = [];
+  daySlots.forEach(slot => {
+    allSlots = allSlots.concat(generateTimeSlots(slot.start, slot.end, availability.duration || 60));
+  });
+
+  fillTimeSelect(timeSelect, selectedDate, allSlots, preferredTime);
+  timeContainer.style.display = "block";
+  updateSessionCountOptions(card);
+  updateBookingButtonState(card);
+}
+
+function generateTimeSlots(startTime, endTime, duration) {
+  const slots = [];
+  const startMinutes = minutesFromTime(startTime);
+  const endMinutes = endTime === "24:00" ? 24 * 60 : minutesFromTime(endTime);
+  const step = Number(duration) || 60;
+
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+    return slots;
+  }
+
+  for (let minute = startMinutes; minute + step <= endMinutes; minute += step) {
+    const value = timeFromMinutes(minute);
+    slots.push({
+      value,
+      label: formatTime(value)
+    });
+  }
+
+  return slots;
+}
+
+function fillTimeSelect(timeSelect, selectedDate, slots, preferredTime) {
+  const optionItems = slots.map(slot => ({
+    value: `${selectedDate}T${slot.value}`,
+    label: slot.label
+  }));
+
+  if (preferredTime && preferredTime.startsWith(`${selectedDate}T`) && !optionItems.some(slot => slot.value === preferredTime)) {
+    const preferredClock = preferredTime.slice(11, 16);
+    optionItems.unshift({
+      value: preferredTime,
+      label: formatTime(preferredClock)
+    });
+  }
+
+  timeSelect.innerHTML = '<option value="">Select a time</option>' +
+    optionItems.map(slot => `<option value="${escapeAttribute(slot.value)}">${escapeHTML(slot.label)}</option>`).join("");
+
+  if (preferredTime && optionItems.some(slot => slot.value === preferredTime)) {
+    timeSelect.value = preferredTime;
+  }
+}
+
+function updateSessionCountOptions(card) {
+  if (!card) return;
+
+  const countContainer = card.querySelector(".session-count-container");
+  const countSelect = card.querySelector("[data-session-count]");
+  const timeSelect = card.querySelector("[data-book-time]");
+
+  if (!countContainer || !countSelect || !timeSelect?.value) {
+    if (countContainer) countContainer.style.display = "none";
+    if (countSelect) countSelect.innerHTML = "";
+    return;
+  }
+
+  const previousValue = Number(countSelect.value || 1);
+  const maxSessions = getMaxSessionsFromSelectedTime(card);
+  countSelect.innerHTML = Array.from({ length: maxSessions }, (_, index) => {
+    const count = index + 1;
+    return `<option value="${count}">${count} session${count === 1 ? "" : "s"}</option>`;
+  }).join("");
+  countSelect.value = String(Math.min(previousValue || 1, maxSessions));
+  countContainer.style.display = "block";
+}
+
+function getMaxSessionsFromSelectedTime(card) {
+  const dateInput = card.querySelector("[data-book-date]");
+  const timeSelect = card.querySelector("[data-book-time]");
+  const selectedDate = dateInput?.value || "";
+  const selectedTime = timeSelect?.value || "";
+
+  if (!selectedDate || !selectedTime) {
+    return 1;
+  }
+
+  if (dateInput.dataset.manualAvailability === "1") {
+    return MAX_CONSECUTIVE_SESSIONS;
+  }
+
+  const availability = parseAvailability(dateInput.dataset.availability || "");
+  const duration = Number(availability.duration || 60) || 60;
+  const selectedMinute = minutesFromTime(selectedTime.slice(11, 16));
+  if (selectedMinute === null) {
+    return 1;
+  }
+
+  const date = new Date(`${selectedDate}T00:00`);
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const selectedDay = days[date.getDay()];
+  const maxFromSlots = availability.slots
+    .filter(slot => slot.day === selectedDay)
+    .reduce((max, slot) => {
+      const slotStart = minutesFromTime(slot.start);
+      const slotEnd = minutesFromTime(slot.end);
+      if (slotStart === null || slotEnd === null) return max;
+      if (selectedMinute < slotStart || selectedMinute + duration > slotEnd) return max;
+      return Math.max(max, Math.floor((slotEnd - selectedMinute) / duration));
+    }, 1);
+
+  return Math.max(1, Math.min(maxFromSlots, MAX_CONSECUTIVE_SESSIONS));
+}
+
+function updateBookingButtonState(card) {
+  if (!card) return;
+
+  const dateInput = card.querySelector("[data-book-date]");
+  const timeSelect = card.querySelector("[data-book-time]");
+  const countSelect = card.querySelector("[data-session-count]");
+  const bookButton = card.querySelector("[data-book-email]");
+
+  if (bookButton) {
+    bookButton.disabled = !dateInput?.value || !timeSelect?.value || !countSelect?.value;
+  }
+}
+
+function timeFromMinutes(totalMinutes) {
+  const minutes = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const hour = Math.floor(minutes / 60).toString().padStart(2, "0");
+  const minute = (minutes % 60).toString().padStart(2, "0");
+  return `${hour}:${minute}`;
 }
 
 function sortTherapists(therapists) {
@@ -173,19 +442,31 @@ function sortTherapists(therapists) {
 
 async function handleBooking(button) {
   const card = button.closest(".match-card");
-  const timeInput = card.querySelector("[data-book-time]");
+  const dateInput = card.querySelector("[data-book-date]");
+  const timeSelect = card.querySelector("[data-book-time]");
   const feedback = card.querySelector("[data-book-message]");
-  const selectedTime = timeInput.value;
+  
+  const selectedDate = dateInput.value;
+  const selectedTime = timeSelect.value;
+  const sessionCount = Number(card.querySelector("[data-session-count]")?.value || 1);
 
+  if (!selectedDate) {
+    feedback.textContent = "Choose the session date first.";
+    return;
+  }
+  
   if (!selectedTime) {
-    feedback.textContent = "Choose the session day and time first.";
+    feedback.textContent = "Choose the session time from available slots.";
     return;
   }
 
   button.disabled = true;
   feedback.textContent = "Checking therapist availability...";
 
-  const result = await bookSession(button.dataset.bookEmail, selectedTime, getSelectedSpecialties(), { silent: true });
+  const result = await bookSession(button.dataset.bookEmail, selectedTime, getSelectedSpecialties(), {
+    silent: true,
+    sessionCount
+  });
   feedback.textContent = result?.data?.message || "Unable to book right now.";
   feedback.classList.toggle("success", Boolean(result?.ok));
   feedback.classList.toggle("error", !result?.ok);

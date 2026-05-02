@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login - TherapistMatch</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="login-page">
+  <div class="auth-container">
+    <img src="logo.png" class="logo" alt="TherapistMatch">
+
+    <h2>Admin Access</h2>
+
+    <input type="email" id="adminEmail" placeholder="Admin email" autocomplete="email" required>
+    <input type="password" id="adminPassword" placeholder="Admin password" autocomplete="current-password" minlength="8" required>
+
+    <button type="button" onclick="adminLogin()">Login to Admin</button>
+    <button type="button" class="ghost-button" onclick="createAdminAccount()">Create First Admin</button>
+
+    <p id="adminMessage"></p>
+  </div>
+
+  <script src="admin-login.js"></script>
+</body>
+</html>

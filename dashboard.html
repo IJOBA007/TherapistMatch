@@ -15,9 +15,10 @@
   <div class="sidebar">
     <h2>TherapistMatch</h2>
 
-    <a href="dashboard.html" class="active">Dashboard</a>
-    <a href="match.html">Find Therapist</a>
-    <a href="settings.html">Settings</a>
+    <a href="dashboard.html" class="active" id="navDashboard">Dashboard <span class="nav-badge" data-badge="dashboard"></span></a>
+    <a href="match.html" id="navFindTherapist">Find Therapist <span class="nav-badge" data-badge="find"></span></a>
+    <a href="chat.html" id="navChat">Chat <span class="nav-badge" data-badge="chat"></span></a>
+    <a href="settings.html" id="navSettings">Settings <span class="nav-badge" data-badge="settings"></span></a>
     <a href="#" class="logout-link" onclick="logout()">Logout</a>
   </div>
 
@@ -38,6 +39,7 @@
 
     <section class="dashboard-panel">
       <h2>Your Bookings</h2>
+      <button type="button" id="removeDuplicates" class="secondary-button duplicate-action">Cancel Duplicate Bookings</button>
       <div id="bookings" class="booking-list">
         <div class="empty-state">
           <strong>No bookings yet</strong>
