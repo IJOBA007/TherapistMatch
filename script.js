@@ -1,7 +1,5 @@
 let socket = null;
 const ADMIN_CONSOLE_PATH = "/tm-console-7f3a9c";
-let turnstileToken = "";
-let turnstileRequired = false;
 
 function getEmailValue() {
   return document.getElementById("email").value.trim().toLowerCase();
@@ -22,60 +20,6 @@ function setVerificationActionVisible(visible) {
   const button = document.getElementById("resendVerificationButton");
   if (button) {
     button.hidden = !visible;
-  }
-}
-
-function getSignupStartedAt() {
-  const startedAt = document.getElementById("signupStartedAt");
-  return startedAt ? startedAt.value : "";
-}
-
-function getWebsiteTrapValue() {
-  const website = document.getElementById("website");
-  return website ? website.value : "";
-}
-
-function resetTurnstileWidget() {
-  if (window.turnstile && turnstileToken) {
-    window.turnstile.reset();
-  }
-  turnstileToken = "";
-}
-
-async function loadTurnstile() {
-  const widget = document.getElementById("turnstileWidget");
-  if (!widget) return;
-
-  try {
-    const res = await fetch("/security_config");
-    const config = await res.json();
-    turnstileRequired = Boolean(config.turnstile_enabled);
-
-    if (!turnstileRequired || !config.turnstile_site_key) return;
-
-    const renderWidget = () => {
-      if (!window.turnstile) {
-        setTimeout(renderWidget, 150);
-        return;
-      }
-
-      window.turnstile.render(widget, {
-        sitekey: config.turnstile_site_key,
-        callback: token => {
-          turnstileToken = token;
-        },
-        "expired-callback": () => {
-          turnstileToken = "";
-        },
-        "error-callback": () => {
-          turnstileToken = "";
-        }
-      });
-    };
-
-    renderWidget();
-  } catch (error) {
-    console.error("Security config error:", error);
   }
 }
 
@@ -104,19 +48,11 @@ async function signup() {
     return;
   }
 
-  if (turnstileRequired && !turnstileToken) {
-    showAuthMessage("Please complete the verification check.");
-    return;
-  }
-
   try {
     const payload = {
       email,
       password,
-      role,
-      signup_started_at: getSignupStartedAt(),
-      website: getWebsiteTrapValue(),
-      turnstile_token: turnstileToken
+      role
     };
 
     if (role === "admin") {
@@ -141,7 +77,6 @@ async function signup() {
       localStorage.clear();
       showAuthMessage(data.message || "Check your email to verify your account before logging in.");
       setVerificationActionVisible(true);
-      resetTurnstileWidget();
       return;
     }
 
@@ -159,21 +94,12 @@ async function signup() {
       }
     } else {
       showAuthMessage(data.message);
-      resetTurnstileWidget();
     }
   } catch (error) {
     console.error("Signup error:", error);
     showAuthMessage("Connection error. Is the server running?");
-    resetTurnstileWidget();
   }
 }
-
-const signupStartedAt = document.getElementById("signupStartedAt");
-if (signupStartedAt) {
-  signupStartedAt.value = String(Date.now());
-}
-
-loadTurnstile();
 
 async function login() {
   const email = getEmailValue();

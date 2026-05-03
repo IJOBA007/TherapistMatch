@@ -15,9 +15,6 @@
 
     <input type="email" id="adminEmail" placeholder="Admin email" autocomplete="email" required>
     <input type="password" id="adminPassword" placeholder="Admin password" autocomplete="current-password" minlength="8" required>
-    <input type="text" id="adminWebsite" class="bot-field" tabindex="-1" autocomplete="off" aria-hidden="true">
-    <input type="hidden" id="adminSignupStartedAt">
-    <div id="adminTurnstileWidget" class="turnstile-widget"></div>
 
     <button type="button" onclick="adminLogin()">Login to Admin</button>
     <button type="button" class="ghost-button" onclick="createAdminAccount()">Create First Admin</button>
@@ -26,6 +23,5 @@
   </div>
 
   <script src="admin-login.js"></script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 </body>
 </html>

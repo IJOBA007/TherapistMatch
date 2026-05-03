@@ -24,22 +24,18 @@ Replace `<your-service>` with the Render service name.
 
 Paystack keys can be added later from the Render Environment page if you turn on live payments.
 
-## Bot Protection
+## Auth Rate Limit
 
-The app blocks basic signup scripts with server-side signup rate limits, a hidden bot trap field, and a minimum form time check.
+The app limits signup and login requests to 30 attempts per IP address per hour by default. You can adjust this with `MAX_AUTH_ATTEMPTS_PER_IP` in Render if needed.
 
-For stronger free protection, create Cloudflare Turnstile keys and add these Render environment variables:
+## Optional Email Verification
 
-- `TURNSTILE_SITE_KEY`
-- `TURNSTILE_SECRET_KEY`
+Email verification is off by default for demos. With the default `EMAIL_VERIFICATION_REQUIRED=0`, new user and therapist accounts can log in immediately.
 
-When both are set, `/signup` requires a valid Turnstile token verified by the Flask backend.
-
-## Real Email Verification
-
-New user and therapist accounts must verify email ownership before login. Add SMTP environment variables in Render:
+To require users and therapists to verify email ownership before login, set `EMAIL_VERIFICATION_REQUIRED=1` and add SMTP environment variables in Render:
 
 - `APP_BASE_URL`: your Render URL, for example `https://therapist-match-lhh8.onrender.com`
+- `EMAIL_VERIFICATION_REQUIRED`: `1`
 - `SMTP_HOST`: for Gmail, `smtp.gmail.com`
 - `SMTP_PORT`: usually `587`
 - `SMTP_USERNAME`: the email account sending messages

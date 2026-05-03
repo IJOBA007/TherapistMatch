@@ -348,17 +348,37 @@ if CORS_ALLOWED_ORIGINS:
 ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'webp'}
 PASSWORD_HASH_PREFIXES = ('scrypt:', 'pbkdf2:', 'argon2:')
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-SESSION_HOURS = 12
-MAX_LOGIN_ATTEMPTS = 5
-LOGIN_LOCK_SECONDS = 5 * 60
+
+
+def env_int(name, default):
+    try:
+        return int(os.environ.get(name, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+SESSION_HOURS = env_int('SESSION_HOURS', 12)
+MAX_LOGIN_ATTEMPTS = env_int('MAX_LOGIN_ATTEMPTS', 5)
+LOGIN_LOCK_SECONDS = env_int('LOGIN_LOCK_SECONDS', 5 * 60)
 LOGIN_ATTEMPTS = {}
-MAX_SIGNUP_ATTEMPTS_PER_IP = 8
-MAX_SIGNUP_ATTEMPTS_PER_EMAIL = 3
-SIGNUP_WINDOW_SECONDS = 60 * 60
-MIN_SIGNUP_FORM_SECONDS = 2
-MAX_SIGNUP_FORM_SECONDS = 60 * 60
+MAX_AUTH_ATTEMPTS_PER_IP = env_int('MAX_AUTH_ATTEMPTS_PER_IP', 30)
+AUTH_IP_WINDOW_SECONDS = env_int('AUTH_IP_WINDOW_SECONDS', 60 * 60)
+AUTH_IP_ATTEMPTS = {}
+MAX_SIGNUP_ATTEMPTS_PER_EMAIL = env_int('MAX_SIGNUP_ATTEMPTS_PER_EMAIL', 8)
+SIGNUP_WINDOW_SECONDS = env_int('SIGNUP_WINDOW_SECONDS', 60 * 60)
 SIGNUP_ATTEMPTS = {}
-EMAIL_VERIFICATION_HOURS = 24
+EMAIL_VERIFICATION_HOURS = env_int('EMAIL_VERIFICATION_HOURS', 24)
+EMAIL_VERIFICATION_REQUIRED = (
+    env_flag('EMAIL_VERIFICATION_REQUIRED', False)
+    or env_flag('REQUIRE_EMAIL_VERIFICATION', False)
+)
 ADMIN_ENTRY_PATH = '/admin'
 ADMIN_CONSOLE_PATH = '/tm-console-7f3a9c'
 LEGACY_ADMIN_ENTRY_PATH = '/tm-gate-7f3a9c'
@@ -438,103 +458,63 @@ def get_request_ip():
     return request.remote_addr or 'unknown'
 
 
-def prune_attempts(key):
+def prune_attempts(store, key, window_seconds):
     now = time.time()
     attempts = [
         attempt
-        for attempt in SIGNUP_ATTEMPTS.get(key, [])
-        if now - attempt < SIGNUP_WINDOW_SECONDS
+        for attempt in store.get(key, [])
+        if now - attempt < window_seconds
     ]
 
     if attempts:
-        SIGNUP_ATTEMPTS[key] = attempts
+        store[key] = attempts
     else:
-        SIGNUP_ATTEMPTS.pop(key, None)
+        store.pop(key, None)
 
     return attempts
 
 
+def is_auth_ip_limited():
+    attempts = prune_attempts(AUTH_IP_ATTEMPTS, get_request_ip(), AUTH_IP_WINDOW_SECONDS)
+    return len(attempts) >= MAX_AUTH_ATTEMPTS_PER_IP
+
+
+def record_auth_ip_attempt():
+    key = get_request_ip()
+    attempts = prune_attempts(AUTH_IP_ATTEMPTS, key, AUTH_IP_WINDOW_SECONDS)
+    attempts.append(time.time())
+    AUTH_IP_ATTEMPTS[key] = attempts
+
+
 def is_signup_limited(email):
-    ip_attempts = prune_attempts(f"ip:{get_request_ip()}")
-    email_attempts = prune_attempts(f"email:{normalize_email(email)}")
-    return (
-        len(ip_attempts) >= MAX_SIGNUP_ATTEMPTS_PER_IP
-        or len(email_attempts) >= MAX_SIGNUP_ATTEMPTS_PER_EMAIL
+    email_attempts = prune_attempts(
+        SIGNUP_ATTEMPTS,
+        f"email:{normalize_email(email)}",
+        SIGNUP_WINDOW_SECONDS
     )
+    return len(email_attempts) >= MAX_SIGNUP_ATTEMPTS_PER_EMAIL
 
 
 def record_signup_attempt(email):
-    now = time.time()
-    keys = [f"ip:{get_request_ip()}"]
-    if email:
-        keys.append(f"email:{normalize_email(email)}")
+    if not email:
+        return
 
-    for key in keys:
-        attempts = prune_attempts(key)
-        attempts.append(now)
-        SIGNUP_ATTEMPTS[key] = attempts
-
-
-def validate_signup_browser_checks(data):
-    if data.get('website'):
-        return "We could not create this account. Please try again."
-
-    started_at = data.get('signup_started_at')
-    try:
-        started_at = float(started_at)
-    except (TypeError, ValueError):
-        return "Please refresh the page and try again."
-
-    elapsed_seconds = time.time() - (started_at / 1000)
-    if elapsed_seconds < MIN_SIGNUP_FORM_SECONDS:
-        return "Please wait a moment before creating an account."
-
-    if elapsed_seconds > MAX_SIGNUP_FORM_SECONDS:
-        return "Please refresh the page and try again."
-
-    return ""
-
-
-def get_turnstile_site_key():
-    return os.environ.get('TURNSTILE_SITE_KEY', '').strip()
-
-
-def get_turnstile_secret_key():
-    return os.environ.get('TURNSTILE_SECRET_KEY', '').strip()
-
-
-def validate_turnstile_token(token):
-    secret_key = get_turnstile_secret_key()
-    if not secret_key:
-        return True, ""
-
-    if not token:
-        return False, "Please complete the verification check."
-
-    try:
-        response = requests.post(
-            "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-            data={
-                "secret": secret_key,
-                "response": token,
-                "remoteip": get_request_ip()
-            },
-            timeout=5
-        )
-        result = response.json()
-    except requests.RequestException:
-        return False, "Verification is unavailable right now. Please try again."
-    except ValueError:
-        return False, "Verification failed. Please try again."
-
-    if not result.get("success"):
-        return False, "Verification failed. Please try again."
-
-    return True, ""
+    key = f"email:{normalize_email(email)}"
+    attempts = prune_attempts(SIGNUP_ATTEMPTS, key, SIGNUP_WINDOW_SECONDS)
+    attempts.append(time.time())
+    SIGNUP_ATTEMPTS[key] = attempts
 
 
 def smtp_configured():
     return bool(os.environ.get('SMTP_HOST', '').strip() and os.environ.get('SMTP_FROM_EMAIL', '').strip())
+
+
+def email_verification_enabled():
+    return EMAIL_VERIFICATION_REQUIRED and smtp_configured()
+
+
+def role_requires_email_verification(role):
+    return role in ('user', 'therapist') and email_verification_enabled()
 
 
 def generate_email_verification():
@@ -1571,20 +1551,13 @@ def signup():
     password = data.get('password')
     role = data.get('role')
 
-    if role != 'admin':
-        signup_browser_message = validate_signup_browser_checks(data)
-        if signup_browser_message:
-            record_signup_attempt(email)
-            return jsonify({"message": signup_browser_message}), 400
+    if is_auth_ip_limited():
+        return jsonify({"message": "Too many signup or login attempts from this IP address. Please wait and try again later."}), 429
+
+    record_auth_ip_attempt()
 
     if is_signup_limited(email):
-        return jsonify({"message": "Too many signup attempts. Please wait and try again later."}), 429
-
-    if role != 'admin':
-        turnstile_ok, turnstile_message = validate_turnstile_token(data.get('turnstile_token'))
-        if not turnstile_ok:
-            record_signup_attempt(email)
-            return jsonify({"message": turnstile_message}), 400
+        return jsonify({"message": "Too many signup attempts for this email. Please wait and try again later."}), 429
 
     if not email or not password or role not in ('user', 'therapist', 'admin'):
         record_signup_attempt(email)
@@ -1625,8 +1598,9 @@ def signup():
         return jsonify({"message": "An account with this email already exists"}), 409
 
     verification_status = 'draft' if role == 'therapist' else 'verified'
-    email_verification = generate_email_verification()
-    email_verified = 1 if role == 'admin' else 0
+    needs_email_verification = role_requires_email_verification(role)
+    email_verification = generate_email_verification() if needs_email_verification else None
+    email_verified = 0 if needs_email_verification else 1
 
     password_hash = generate_password_hash(password)
 
@@ -1647,9 +1621,9 @@ def signup():
             now_iso(),
             now_iso(),
             email_verified,
-            None if email_verified else email_verification["token"],
-            None if email_verified else email_verification["code"],
-            None if email_verified else email_verification["expires_at"]
+            email_verification["token"] if needs_email_verification else None,
+            email_verification["code"] if needs_email_verification else None,
+            email_verification["expires_at"] if needs_email_verification else None
         )
     )
 
@@ -1659,7 +1633,7 @@ def signup():
     conn.close()
 
     email_sent = False
-    if not email_verified:
+    if needs_email_verification:
         email_sent, _ = send_verification_email(
             email,
             email_verification["token"],
@@ -1667,10 +1641,10 @@ def signup():
         )
 
     record_signup_attempt(email)
-    if not email_verified:
+    if needs_email_verification:
         message = "Account created. Check your email to verify your account before logging in."
         if not email_sent:
-            message = "Account created, but email sending is not configured yet. Ask the site owner to enable verification email."
+            message = "Account created, but the verification email could not be sent. Ask the site owner to check email settings."
         return jsonify({
             "message": message,
             "role": role,
@@ -1779,6 +1753,26 @@ def resend_verification_email():
     if not is_valid_email(email):
         return jsonify({"message": "Enter a valid email address"}), 400
 
+    if not email_verification_enabled():
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, COALESCE(email_verified, 1) FROM users WHERE email=? LIMIT 1", (email,))
+        row = cursor.fetchone()
+
+        if row and not row[1]:
+            cursor.execute("""
+            UPDATE users
+            SET email_verified=1,
+                email_verification_token=NULL,
+                email_verification_code=NULL,
+                email_verification_expires_at=NULL
+            WHERE id=?
+            """, (row[0],))
+            conn.commit()
+
+        conn.close()
+        return jsonify({"message": "Email verification is off right now. You can log in."})
+
     if is_signup_limited(email):
         return jsonify({"message": "Too many verification email requests. Please wait and try again later."}), 429
 
@@ -1838,6 +1832,11 @@ def login():
     password = data.get('password')
     expected_role = data.get('role')
 
+    if is_auth_ip_limited():
+        return jsonify({"message": "Too many signup or login attempts from this IP address. Please wait and try again later."}), 429
+
+    record_auth_ip_attempt()
+
     if not email or not password:
         return jsonify({"message": "Please enter email and password"}), 400
 
@@ -1885,11 +1884,21 @@ def login():
             return jsonify({"message": "Please use the correct login page for this account"}), 403
 
         if role in ('user', 'therapist') and not email_verified:
-            conn.close()
-            return jsonify({
-                "message": "Please verify your email before logging in.",
-                "email_verification_required": True
-            }), 403
+            if email_verification_enabled():
+                conn.close()
+                return jsonify({
+                    "message": "Please verify your email before logging in.",
+                    "email_verification_required": True
+                }), 403
+
+            cursor.execute("""
+            UPDATE users
+            SET email_verified=1,
+                email_verification_token=NULL,
+                email_verification_code=NULL,
+                email_verification_expires_at=NULL
+            WHERE id=?
+            """, (user_id,))
 
         if not is_password_hash(stored_password):
             cursor.execute(
@@ -4142,15 +4151,6 @@ def home():
 @app.route('/healthz')
 def healthz():
     return jsonify({"status": "ok"})
-
-
-@app.route('/security_config')
-def security_config():
-    site_key = get_turnstile_site_key()
-    return jsonify({
-        "turnstile_enabled": bool(site_key),
-        "turnstile_site_key": site_key
-    })
 
 
 @app.route('/dashboard.html')
